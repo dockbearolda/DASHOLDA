@@ -5,15 +5,16 @@ import {
   Loader2,
   Printer,
   CheckCircle2,
-  XCircle,
-  RotateCcw,
   CreditCard,
   AlertCircle,
+  RotateCcw,
+  Package,
+  Pencil,
   Eye,
-  Phone,
+  Layers,
+  PhoneCall,
   Archive,
-  Paintbrush,
-  Timer,
+  InboxIcon,
 } from "lucide-react";
 
 const orderStatusConfig: Record<
@@ -24,17 +25,17 @@ const orderStatusConfig: Record<
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
-  COMMANDE_A_TRAITER:    { label: "À traiter",          variant: "warning",     icon: Clock },
-  COMMANDE_EN_ATTENTE:   { label: "En attente",          variant: "default",     icon: Timer },
-  COMMANDE_A_PREPARER:   { label: "À préparer",          variant: "info",        icon: Loader2 },
-  MAQUETTE_A_FAIRE:      { label: "Maquette à faire",    variant: "purple",      icon: Paintbrush },
-  PRT_A_FAIRE:           { label: "PRT à faire",         variant: "info",        icon: Loader2 },
-  EN_ATTENTE_VALIDATION: { label: "Validation en attente", variant: "warning",   icon: Eye },
-  EN_COURS_IMPRESSION:   { label: "En impression",       variant: "info",        icon: Printer },
-  PRESSAGE_A_FAIRE:      { label: "Pressage à faire",    variant: "info",        icon: Loader2 },
-  CLIENT_A_CONTACTER:    { label: "Client à contacter",  variant: "warning",     icon: Phone },
-  CLIENT_PREVENU:        { label: "Client prévenu",      variant: "success",     icon: CheckCircle2 },
-  ARCHIVES:              { label: "Archivé",             variant: "default",     icon: Archive },
+  COMMANDE_A_TRAITER:    { label: "À traiter",             variant: "destructive", icon: InboxIcon },
+  COMMANDE_EN_ATTENTE:   { label: "En attente",             variant: "warning",     icon: Clock },
+  COMMANDE_A_PREPARER:   { label: "À préparer",             variant: "info",        icon: Package },
+  MAQUETTE_A_FAIRE:      { label: "Maquette à faire",       variant: "purple",      icon: Pencil },
+  PRT_A_FAIRE:           { label: "PRT à faire",            variant: "warning",     icon: Printer },
+  EN_ATTENTE_VALIDATION: { label: "Validation en attente",  variant: "info",        icon: Eye },
+  EN_COURS_IMPRESSION:   { label: "En impression",          variant: "info",        icon: Loader2 },
+  PRESSAGE_A_FAIRE:      { label: "Pressage à faire",       variant: "purple",      icon: Layers },
+  CLIENT_A_CONTACTER:    { label: "Client à contacter",     variant: "destructive", icon: PhoneCall },
+  CLIENT_PREVENU:        { label: "Client prévenu",         variant: "success",     icon: CheckCircle2 },
+  ARCHIVES:              { label: "Archivé",                variant: "default",     icon: Archive },
 };
 
 const paymentStatusConfig: Record<
