@@ -102,17 +102,17 @@ export function OrderList({ initialOrders, disableNavigation = false, refreshInt
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">Tous les statuts</SelectItem>
-              <SelectItem value="COMMANDE_A_TRAITER">Commande à traiter</SelectItem>
-              <SelectItem value="COMMANDE_EN_ATTENTE">Commande en Attente</SelectItem>
-              <SelectItem value="COMMANDE_A_PREPARER">Commande à préparer</SelectItem>
+              <SelectItem value="COMMANDE_A_TRAITER">À traiter</SelectItem>
+              <SelectItem value="COMMANDE_EN_ATTENTE">En attente</SelectItem>
+              <SelectItem value="COMMANDE_A_PREPARER">À préparer</SelectItem>
               <SelectItem value="MAQUETTE_A_FAIRE">Maquette à faire</SelectItem>
               <SelectItem value="PRT_A_FAIRE">PRT à faire</SelectItem>
-              <SelectItem value="EN_ATTENTE_VALIDATION">En attente validation</SelectItem>
-              <SelectItem value="EN_COURS_IMPRESSION">En cours d&apos;Impression</SelectItem>
+              <SelectItem value="EN_ATTENTE_VALIDATION">Validation en attente</SelectItem>
+              <SelectItem value="EN_COURS_IMPRESSION">En impression</SelectItem>
               <SelectItem value="PRESSAGE_A_FAIRE">Pressage à faire</SelectItem>
               <SelectItem value="CLIENT_A_CONTACTER">Client à contacter</SelectItem>
               <SelectItem value="CLIENT_PREVENU">Client prévenu</SelectItem>
-              <SelectItem value="ARCHIVES">Archives</SelectItem>
+              <SelectItem value="ARCHIVES">Archivé</SelectItem>
             </SelectContent>
           </Select>
 
