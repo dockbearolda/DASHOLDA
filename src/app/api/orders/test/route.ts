@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { OrderStatus, PaymentStatus } from "@/generated/prisma";
 
 // POST /api/orders/test — create a test order from the dashboard (no secret needed)
 export async function POST() {
@@ -12,8 +13,8 @@ export async function POST() {
         customerName: "Marie Dupont",
         customerEmail: "marie.dupont@example.com",
         customerPhone: "+33 6 12 34 56 78",
-        status: "PENDING",
-        paymentStatus: "PAID",
+        status: OrderStatus.PENDING,
+        paymentStatus: PaymentStatus.PAID,
         total: 149.99,
         subtotal: 129.99,
         shipping: 9.9,
