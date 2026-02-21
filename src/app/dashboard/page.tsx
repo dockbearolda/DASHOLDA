@@ -16,60 +16,44 @@ import { Order } from "@/types/order";
 import { subDays, startOfDay, format } from "date-fns";
 import { fr } from "date-fns/locale";
 
-type PrismaOrder = {
-  id: string;
-  total: number;
-  status: string;
-  paymentStatus: string;
-  createdAt: Date;
-  updatedAt: Date;
-  orderNumber: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string | null;
-  subtotal: number;
-  shipping: number;
-  tax: number;
-  currency: string;
-  notes: string | null;
-  shippingAddress: unknown;
-  billingAddress: unknown;
-  items: {
-    id: string;
-    orderId: string;
-    name: string;
-    sku: string | null;
-    quantity: number;
-    price: number;
-    imageUrl: string | null;
-  }[];
-};
-
 async function getDashboardData() {
   const now = new Date();
   const todayStart = startOfDay(now);
   const yesterdayStart = startOfDay(subDays(now, 1));
 
-  const [rawOrders, todayRaw, yesterdayRaw] = await Promise.all([
-    prisma.order.findMany({
-      include: { items: true },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.order.findMany({
-      where: { createdAt: { gte: todayStart } },
-    }),
-    prisma.order.findMany({
-      where: { createdAt: { gte: yesterdayStart, lt: todayStart } },
-    }),
-  ]);
+  // All orders with items — raw SQL, consistent with API routes
+  const rawOrders = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT o.*,
+      COALESCE(json_agg(
+        json_build_object(
+          'id', i.id, 'orderId', i."orderId", 'name', i.name,
+          'sku', i.sku, 'quantity', i.quantity, 'price', i.price, 'imageUrl', i."imageUrl"
+        ) ORDER BY i.id
+      ) FILTER (WHERE i.id IS NOT NULL), '[]') AS items
+    FROM orders o
+    LEFT JOIN order_items i ON i."orderId" = o.id
+    GROUP BY o.id
+    ORDER BY o."createdAt" DESC
+  `;
 
-  const orders = rawOrders as unknown as PrismaOrder[];
-  const todayOrders = todayRaw as unknown as { total: number }[];
-  const yesterdayOrders = yesterdayRaw as unknown as { total: number }[];
+  const todayRows = await prisma.$queryRaw<{ total: number }[]>`
+    SELECT total FROM orders WHERE "createdAt" >= ${todayStart}
+  `;
 
-  const totalRevenue = orders.reduce((s: number, o: PrismaOrder) => s + o.total, 0);
-  const todayRevenue = todayOrders.reduce((s: number, o: { total: number }) => s + o.total, 0);
-  const yesterdayRevenue = yesterdayOrders.reduce((s: number, o: { total: number }) => s + o.total, 0);
+  const yesterdayRows = await prisma.$queryRaw<{ total: number }[]>`
+    SELECT total FROM orders WHERE "createdAt" >= ${yesterdayStart} AND "createdAt" < ${todayStart}
+  `;
+
+  type RawOrder = Record<string, unknown> & { total: unknown; status: unknown; paymentStatus: unknown };
+  const orders = (rawOrders as RawOrder[]).map((o) => ({
+    ...o,
+    createdAt: o.createdAt instanceof Date ? (o.createdAt as Date).toISOString() : String(o.createdAt),
+    updatedAt: o.updatedAt instanceof Date ? (o.updatedAt as Date).toISOString() : String(o.updatedAt),
+  }));
+
+  const totalRevenue = orders.reduce((s, o) => s + (Number(o.total) || 0), 0);
+  const todayRevenue = todayRows.reduce((s, o) => s + (Number(o.total) || 0), 0);
+  const yesterdayRevenue = yesterdayRows.reduce((s, o) => s + (Number(o.total) || 0), 0);
 
   const revenueTrend =
     yesterdayRevenue > 0
@@ -77,39 +61,40 @@ async function getDashboardData() {
       : todayRevenue > 0 ? 100 : 0;
 
   const chartData = await Promise.all(
-    Array.from({ length: 7 }, (_, i) => {
+    Array.from({ length: 7 }, async (_, i) => {
       const date = subDays(now, 6 - i);
-      return prisma.order.aggregate({
-        where: {
-          createdAt: { gte: startOfDay(date), lt: startOfDay(subDays(date, -1)) },
-          paymentStatus: "PAID",
-        },
-        _sum: { total: true },
-        _count: true,
-      }).then((r: { _sum: { total: number | null }; _count: number }) => ({
+      const dayStart = startOfDay(date);
+      const dayEnd = startOfDay(subDays(date, -1));
+
+      const rows = await prisma.$queryRaw<{ revenue: number; orders: bigint }[]>`
+        SELECT
+          COALESCE(SUM(total), 0) AS revenue,
+          COUNT(*)                AS orders
+        FROM orders
+        WHERE "createdAt" >= ${dayStart}
+          AND "createdAt" <  ${dayEnd}
+          AND "paymentStatus" = 'PAID'
+      `;
+
+      const row = rows[0];
+      return {
         date: format(date, "d MMM", { locale: fr }),
-        revenue: r._sum.total ?? 0,
-        orders: r._count,
-      }));
+        revenue: Number(row?.revenue ?? 0),
+        orders:  Number(row?.orders  ?? 0),
+      };
     })
   );
 
   return {
-    orders: orders.map((o: PrismaOrder) => ({
-      ...o,
-      shippingAddress: o.shippingAddress as Record<string, string> | null,
-      billingAddress: o.billingAddress as Record<string, string> | null,
-      createdAt: o.createdAt.toISOString(),
-      updatedAt: o.updatedAt.toISOString(),
-    })),
+    orders,
     stats: {
-      totalOrders: orders.length,
+      totalOrders:   orders.length,
       totalRevenue,
       todayRevenue,
-      todayOrders: todayRaw.length,
-      pendingOrders: orders.filter((o: PrismaOrder) => o.status === "COMMANDE_A_TRAITER").length,
-      shippedOrders: orders.filter((o: PrismaOrder) => o.status === "CLIENT_PREVENU").length,
-      paidOrders: orders.filter((o: PrismaOrder) => o.paymentStatus === "PAID").length,
+      todayOrders:   todayRows.length,
+      pendingOrders: orders.filter((o) => o.status === "COMMANDE_A_TRAITER").length,
+      shippedOrders: orders.filter((o) => o.status === "CLIENT_PREVENU").length,
+      paidOrders:    orders.filter((o) => o.paymentStatus === "PAID").length,
       revenueTrend,
     },
     chartData,
@@ -120,7 +105,8 @@ export default async function DashboardPage() {
   let data;
   try {
     data = await getDashboardData();
-  } catch {
+  } catch (err) {
+    console.error("getDashboardData error:", err);
     data = {
       orders: [],
       stats: { totalOrders: 0, totalRevenue: 0, todayRevenue: 0, todayOrders: 0, pendingOrders: 0, shippedOrders: 0, paidOrders: 0, revenueTrend: 0 },

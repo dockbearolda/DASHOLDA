@@ -56,8 +56,16 @@ export async function GET() {
 }
 
 // POST /api/orders — receive webhook from oldastudio
-// Uses raw SQL to bypass the stale Prisma client that has French enum defaults
-// (COMMANDE_A_TRAITER) baked in while the DB has English values (PENDING...).
+// Maps legacy English status values to French (oldastudio may still send PENDING etc.)
+const LEGACY_STATUS_MAP: Record<string, string> = {
+  PENDING:    "COMMANDE_A_TRAITER",
+  PROCESSING: "COMMANDE_A_PREPARER",
+  SHIPPED:    "ARCHIVES",
+  DELIVERED:  "ARCHIVES",
+  CANCELLED:  "ARCHIVES",
+  REFUNDED:   "ARCHIVES",
+};
+
 export async function POST(request: NextRequest) {
   if (!verifyWebhookSecret(request)) {
     return NextResponse.json({ error: "Unauthorized: invalid webhook secret" }, { status: 401 });
@@ -80,7 +88,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "items must be a non-empty array" }, { status: 422 });
   }
 
-  const status = body.status ?? "COMMANDE_A_TRAITER";
+  const rawStatus = body.status ?? "COMMANDE_A_TRAITER";
+  const status = LEGACY_STATUS_MAP[rawStatus] ?? rawStatus;
   const paymentStatus = body.paymentStatus ?? "PENDING";
   const shippingAddr = body.shippingAddress ? JSON.stringify(body.shippingAddress) : null;
   const billingAddr = body.billingAddress ? JSON.stringify(body.billingAddress) : null;
