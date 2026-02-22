@@ -161,13 +161,21 @@ export async function POST(request: NextRequest) {
     return Number.isFinite(n) ? n : fallback;
   };
 
+  // Normalise category: lowercase + trim  (e.g. "T-Shirt" → "t-shirt")
+  const category = typeof body.category === "string"
+    ? body.category.trim().toLowerCase()
+    : "";
+
   const rawStatus = body.status ?? "COMMANDE_A_TRAITER";
   const mappedStatus = LEGACY_STATUS_MAP[rawStatus] ?? rawStatus;
-  // T-shirt orders always start in COMMANDE_A_TRAITER (atelier workflow)
-  const hasTshirtItem = body.items.some((item) =>
-    /t[-\s]?shirt|tee\b/i.test(typeof item.name === "string" ? item.name : "")
-  );
-  const status = hasTshirtItem ? "COMMANDE_A_TRAITER" : mappedStatus;
+  // T-shirt orders always start in COMMANDE_A_TRAITER — category field first
+  // (reliable), item-name regex as fallback for sites that don't send category.
+  const isTshirt =
+    category === "t-shirt" || category === "tshirt" ||
+    body.items.some((item) =>
+      /t[-\s]?shirt|tee\b/i.test(typeof item.name === "string" ? item.name : "")
+    );
+  const status = isTshirt ? "COMMANDE_A_TRAITER" : mappedStatus;
   const paymentStatus = body.paymentStatus ?? "PENDING";
   const shippingAddr = body.shippingAddress ? JSON.stringify(body.shippingAddress) : null;
   const billingAddr = body.billingAddress ? JSON.stringify(body.billingAddress) : null;
@@ -197,7 +205,7 @@ export async function POST(request: NextRequest) {
         INSERT INTO orders (
           id, "orderNumber", "customerName", "customerEmail", "customerPhone",
           status, "paymentStatus", total, subtotal, shipping, tax, currency,
-          notes, "shippingAddress", "billingAddress", "updatedAt"
+          notes, category, "shippingAddress", "billingAddress", "updatedAt"
         ) VALUES (
           ${orderId},
           ${body.orderNumber},
@@ -212,6 +220,7 @@ export async function POST(request: NextRequest) {
           ${safeNum(body.tax)},
           ${body.currency ?? "EUR"},
           ${body.notes ?? null},
+          ${category},
           ${shippingAddr}::jsonb,
           ${billingAddr}::jsonb,
           NOW()
@@ -262,7 +271,7 @@ export async function POST(request: NextRequest) {
     if (existing.length === 0) {
       console.log(`Commande insérée en base ID: ${orderId}`);
       orderEvents.emit("new-order", formattedOrder);
-      console.log(`[OLDA] Nouvelle commande créée : #${body.orderNumber} (status=${status})`);
+      console.log(`[OLDA] Nouvelle commande créée : #${body.orderNumber} (status=${status}, category="${category || "(none)"}")`);
     } else {
       console.log(`[OLDA] Commande mise à jour : #${body.orderNumber} (id=${orderId})`);
     }
