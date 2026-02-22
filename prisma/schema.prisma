@@ -21,6 +21,7 @@ model Order {
   tax             Float         @default(0)
   currency        String        @default("EUR")
   notes           String?
+  category        String        @default("")
   shippingAddress Json?
   billingAddress  Json?
   items           OrderItem[]

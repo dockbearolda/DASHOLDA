@@ -45,6 +45,7 @@ export interface Order {
   tax: number;
   currency: string;
   notes?: string | null;
+  category?: string | null;
   shippingAddress?: Address | null;
   billingAddress?: Address | null;
   items: OrderItem[];
@@ -75,6 +76,7 @@ export interface WebhookOrderPayload {
   tax?: number;
   currency?: string;
   notes?: string;
+  category?: string;
   shippingAddress?: Address;
   billingAddress?: Address;
   items: {

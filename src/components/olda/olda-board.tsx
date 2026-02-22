@@ -13,10 +13,17 @@ import { TshirtOrderCard } from "./tshirt-order-card";
 type ProductType = "tshirt" | "mug" | "other";
 
 function detectProductType(order: Order): ProductType {
+  // 1. Explicit category field (sent by oldastudio — most reliable)
+  const cat = (order.category ?? "").toLowerCase().replace(/[-_\s]/g, "");
+  if (cat === "tshirt")  return "tshirt";
+  if (cat === "mug")     return "mug";
+
+  // 2. Fallback: scan item names (for orders without category field)
   const items = Array.isArray(order.items) ? order.items : [];
   const names = items.map((i) => (i.name ?? "").toLowerCase()).join(" ");
-  if (/t[-\s]?shirt|tee\b/.test(names)) return "tshirt";
-  if (/mug|tasse/.test(names)) return "mug";
+  if (/t[-\s_]?shirt|tee\b/.test(names)) return "tshirt";
+  if (/mug|tasse/.test(names))            return "mug";
+
   return "other";
 }
 
