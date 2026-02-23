@@ -27,10 +27,13 @@ function ReminderCard({
   personKey,
   personName,
   initialTodos,
+  isActive,
 }: {
   personKey: string;
   personName: string;
   initialTodos: TodoItem[];
+  /** true si c'est la personne actuellement connectée */
+  isActive?: boolean;
 }) {
   const [todos, setTodos]           = useState<TodoItem[]>(initialTodos);
   const [editing, setEditing]       = useState(false);
@@ -85,13 +88,23 @@ function ReminderCard({
   };
 
   return (
-    <div className="rounded-2xl bg-white border border-gray-200 shadow-sm p-3 md:p-4 flex flex-col min-h-[96px] md:min-h-[110px]">
+    <div className={cn(
+      "rounded-2xl bg-white border shadow-sm p-3 md:p-4 flex flex-col min-h-[96px] md:min-h-[110px] transition-all duration-300",
+      isActive ? "border-blue-300/70 shadow-blue-100/60" : "border-gray-200"
+    )}>
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between mb-2 md:mb-3">
-        <span className="text-[14px] md:text-[15px] font-semibold tracking-tight text-gray-900">
-          {personName}
-        </span>
+        <span className="flex items-center gap-1.5">
+            {/* Point bleu discret — personne connectée */}
+            {isActive && <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />}
+            <span className={cn(
+              "text-[14px] md:text-[15px] tracking-tight",
+              isActive ? "font-bold text-gray-900" : "font-semibold text-gray-900"
+            )}>
+              {personName}
+            </span>
+          </span>
         {/* 44×44 pt touch target (Apple HIG) — negative margin keeps visual size tight */}
         <button
           onClick={openEdit}
@@ -171,7 +184,14 @@ function ReminderCard({
 
 // ── Grid export ────────────────────────────────────────────────────────────────
 
-export function RemindersGrid({ notesMap }: { notesMap: Record<string, TodoItem[]> }) {
+export function RemindersGrid({
+  notesMap,
+  activeUser,
+}: {
+  notesMap: Record<string, TodoItem[]>;
+  /** Clé de la personne connectée (ex: "loic") — sa carte est mise en valeur */
+  activeUser?: string;
+}) {
   return (
     // 2-col compact grid on mobile, 4-col on lg+
     // No negative-margin bleed (backdrop-blur on parent clips overflow in WebKit)
@@ -182,6 +202,7 @@ export function RemindersGrid({ notesMap }: { notesMap: Record<string, TodoItem[
           personKey={p.key}
           personName={p.name}
           initialTodos={notesMap[p.key] ?? []}
+          isActive={p.key === activeUser}
         />
       ))}
     </div>
