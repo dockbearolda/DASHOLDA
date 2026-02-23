@@ -1,0 +1,76 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  status          OrderStatus   @default(COMMANDE_A_TRAITER)
+  paymentStatus   PaymentStatus @default(PENDING)
+  total           Float
+  subtotal        Float
+  shipping        Float         @default(0)
+  tax             Float         @default(0)
+  currency        String        @default("EUR")
+  notes           String?
+  category        String        @default("")
+  shippingAddress Json?
+  billingAddress  Json?
+  items           OrderItem[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id       String  @id @default(cuid())
+  orderId  String
+  order    Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  name     String
+  sku      String?
+  quantity Int
+  price    Float
+  imageUrl String?
+
+  @@map("order_items")
+}
+
+enum OrderStatus {
+  COMMANDE_A_TRAITER
+  COMMANDE_EN_ATTENTE
+  COMMANDE_A_PREPARER
+  MAQUETTE_A_FAIRE
+  PRT_A_FAIRE
+  EN_ATTENTE_VALIDATION
+  EN_COURS_IMPRESSION
+  PRESSAGE_A_FAIRE
+  CLIENT_A_CONTACTER
+  CLIENT_PREVENU
+  ARCHIVES
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model PersonNote {
+  id        String   @id @default(cuid())
+  person    String   @unique
+  content   String   @default("")
+  todos     Json     @default("[]")
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("person_notes")
+}
