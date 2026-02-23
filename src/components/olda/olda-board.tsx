@@ -150,21 +150,30 @@ function KanbanBoard({
   }, [columns, orders]);
 
   return (
-    // Mobile: snap-x mandatory — each full-width column snaps into view
-    // md+: free horizontal scroll (snap disabled, normal desktop behaviour)
+    /*
+     * Two-layer scroll — iOS Safari:
+     *   outer: block + overflow-x-auto = reliable scroll container.
+     *   inner: flex + w-max = explicit intrinsic width (WebKit needs this).
+     * CRITICAL: scroll-snap-type goes on the SCROLL CONTAINER (outer), not
+     * the flex child. Placing snap-x on a non-scroll element is undefined
+     * behaviour in WebKit and causes the scrollport to collapse to zero.
+     * overflow-x-clip on OldaBoard root prevents page bleed without creating
+     * a competing scroll context (unlike overflow-x-hidden).
+     */
     <div className={cn(
-      "flex gap-3 overflow-x-auto pb-4 no-scrollbar",
-      "snap-x snap-mandatory",
-      "md:snap-none md:[scrollbar-width:thin]",
+      "w-full overflow-x-auto no-scrollbar pb-safe-6",
+      "snap-x snap-mandatory md:snap-none",
     )}>
-      {columns.map((col) => (
-        <KanbanColumn
-          key={col.status}
-          col={col}
-          orders={ordersByStatus[col.status] ?? []}
-          newOrderIds={newOrderIds}
-        />
-      ))}
+      <div className="flex gap-3 pb-4 w-max">
+        {columns.map((col) => (
+          <KanbanColumn
+            key={col.status}
+            col={col}
+            orders={ordersByStatus[col.status] ?? []}
+            newOrderIds={newOrderIds}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -336,7 +345,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col bg-white min-h-screen">
+    <div className="flex flex-col bg-white min-h-screen w-full overflow-x-clip">
 
       {/* ══ ZONE 1 — Sticky header: 4 person reminder cards ══════════════════ */}
       {/* pt-safe: pushes content below iOS notch / Dynamic Island               */}
@@ -358,8 +367,8 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
             <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-gray-900">
               Dashboard OLDA
             </h1>
-            <p className="hidden sm:block text-[15px] text-gray-500 mt-1">
-              Vue d&apos;ensemble de la production par type de produit
+            <p className="text-[13px] sm:text-[15px] text-gray-500 mt-0.5">
+              Vue d&apos;ensemble · production
             </p>
           </div>
           <div className="shrink-0 pb-1">
@@ -368,19 +377,22 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
         </div>
 
         {/* ── Navigation tabs — min-h-[44px] = Apple HIG 44 pt touch target ── */}
-        <div className="border-b border-gray-200 flex gap-0">
+        {/* overflow-x-auto: prevents long labels from overflowing into Kanban */}
+        <div className="border-b border-gray-200 flex gap-0 overflow-x-auto no-scrollbar">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               disabled={!tab.enabled}
               onClick={() => tab.enabled && setActiveTab(tab.key)}
               className={cn(
+                // [touch-action:manipulation] removes iOS 300 ms tap delay
                 "relative shrink-0 px-4 min-h-[44px] flex items-center",
                 "text-[14px] font-medium transition-colors whitespace-nowrap pb-[2px]",
+                "[touch-action:manipulation]",
                 tab.key === activeTab
-                  ? "text-blue-600"
+                  ? "text-blue-600 cursor-pointer"
                   : tab.enabled
-                  ? "text-gray-500 hover:text-gray-700"
+                  ? "text-gray-500 hover:text-gray-700 cursor-pointer"
                   : "text-gray-300 cursor-not-allowed"
               )}
             >
