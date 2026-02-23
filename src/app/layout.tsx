@@ -4,12 +4,13 @@ import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/layout/theme-provider";
 import "./globals.css";
 
-// ── Viewport: prevent iOS pinch-zoom, honour notch/home-indicator ─────────────
+// ── Viewport: honour notch/home-indicator, allow pinch-zoom (avoids iOS scale-down) ──
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  minimumScale: 1,
+  // maximumScale / userScalable intentionally omitted — blocking zoom on iOS
+  // can cause Safari to silently scale the layout DOWN, making cards invisible.
   viewportFit: "cover",   // env(safe-area-inset-*) active
 };
 

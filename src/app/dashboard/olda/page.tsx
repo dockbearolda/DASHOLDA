@@ -47,7 +47,7 @@ export default async function OldaDashboardPage() {
   }
 
   return (
-    <div>
+    <div className="w-full">
       <Header title="Dashboard OLDA" />
       <OldaBoard orders={orders} />
     </div>

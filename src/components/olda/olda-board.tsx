@@ -97,7 +97,7 @@ function KanbanColumn({
   return (
     // Mobile: full viewport width with snap point so user swipes column-by-column
     // md+: fixed 272 px column in a free-scrolling horizontal list
-    <div className="snap-start shrink-0 w-[88vw] sm:w-[80vw] md:w-[272px] flex flex-col gap-2">
+    <div className="snap-start shrink-0 w-[82vw] xs:w-[80vw] sm:w-[72vw] md:w-[272px] flex flex-col gap-2">
 
       {/* Status bubble / column header */}
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm px-3 py-2 flex items-center justify-between gap-2">
@@ -150,12 +150,14 @@ function KanbanBoard({
   }, [columns, orders]);
 
   return (
-    // Mobile: snap-x mandatory — each full-width column snaps into view
+    // Mobile: snap-x mandatory — each column snaps into view
     // md+: free horizontal scroll (snap disabled, normal desktop behaviour)
+    // px-4/px-6: indent columns from screen edge; extends full viewport width
     <div className={cn(
       "flex gap-3 overflow-x-auto pb-4 no-scrollbar",
       "snap-x snap-mandatory",
-      "md:snap-none md:[scrollbar-width:thin]",
+      "px-4 sm:px-6",
+      "md:snap-none md:px-0 md:[scrollbar-width:thin]",
     )}>
       {columns.map((col) => (
         <KanbanColumn
@@ -336,7 +338,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col bg-white min-h-screen">
+    <div className="flex flex-col bg-white min-h-screen w-full">
 
       {/* ══ ZONE 1 — Sticky header: 4 person reminder cards ══════════════════ */}
       {/* pt-safe: pushes content below iOS notch / Dynamic Island               */}
@@ -347,10 +349,11 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
       </div>
 
       {/* ══ ZONE 2 — Scrollable workspace ════════════════════════════════════ */}
-      <div className="px-4 sm:px-6 py-5 md:py-6 space-y-5">
+      {/* No horizontal padding here — hero/tabs add their own, kanban bleeds to edge */}
+      <div className="py-5 md:py-6 flex flex-col gap-5">
 
         {/* ── Hero ── */}
-        <div className="flex items-end justify-between gap-3">
+        <div className="px-4 sm:px-6 flex items-end justify-between gap-3">
           <div>
             <p className="text-[13px] md:text-[14px] font-semibold uppercase tracking-widest text-gray-400 mb-1">
               Atelier
@@ -358,9 +361,6 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
             <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-gray-900">
               Dashboard OLDA
             </h1>
-            <p className="hidden sm:block text-[15px] text-gray-500 mt-1">
-              Vue d&apos;ensemble de la production par type de produit
-            </p>
           </div>
           <div className="shrink-0 pb-1">
             <LiveIndicator connected={sseConnected} />
@@ -368,7 +368,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
         </div>
 
         {/* ── Navigation tabs — min-h-[44px] = Apple HIG 44 pt touch target ── */}
-        <div className="border-b border-gray-200 flex gap-0">
+        <div className="px-4 sm:px-6 border-b border-gray-200 flex gap-0">
           {TABS.map((tab) => (
             <button
               key={tab.key}
@@ -378,9 +378,9 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
                 "relative shrink-0 px-4 min-h-[44px] flex items-center",
                 "text-[14px] font-medium transition-colors whitespace-nowrap pb-[2px]",
                 tab.key === activeTab
-                  ? "text-blue-600"
+                  ? "text-blue-600 cursor-pointer"
                   : tab.enabled
-                  ? "text-gray-500 hover:text-gray-700"
+                  ? "text-gray-500 hover:text-gray-700 cursor-pointer"
                   : "text-gray-300 cursor-not-allowed"
               )}
             >
@@ -395,7 +395,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
           ))}
         </div>
 
-        {/* ── ZONE 3 — Kanban workspace (single board, updates with tab) ── */}
+        {/* ── ZONE 3 — Kanban workspace — full-width, bleeds to screen edges ── */}
         <KanbanBoard
           columns={TSHIRT_COLUMNS}
           orders={activeOrders}

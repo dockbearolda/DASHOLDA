@@ -153,6 +153,13 @@
 @layer base {
   * {
     border-color: hsl(var(--border));
+    /* Prevent double-tap zoom delay on interactive elements */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    /* Prevent page-level horizontal scroll — kanban containers scroll independently */
+    overflow-x: clip;
   }
 
   body {
@@ -161,6 +168,10 @@
     font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    /* Prevent body-level horizontal scroll */
+    overflow-x: clip;
+    /* Ensure body is always full width */
+    width: 100%;
   }
 
   /* Tighten heading tracking slightly — Apple style */
@@ -210,6 +221,19 @@
   }
   .no-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  /* ── Horizontal scroll containers (kanban, sliders) ─────────────── */
+  /* momentum scrolling on iOS, prevents vertical interference           */
+  .overflow-x-auto,
+  .overflow-x-scroll {
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+  }
+
+  /* ── Interactive elements — instant tap on iOS ───────────────────── */
+  button, [role="button"], a, label {
+    touch-action: manipulation;
   }
 }
 

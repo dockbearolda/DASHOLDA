@@ -349,19 +349,10 @@ export function TshirtOrderCard({ order, isNew }: { order: Order; isNew?: boolea
             </p>
           </div>
 
-          {/* ─ Right: QR code ─
-               On very narrow screens (<sm) the container shrinks to 68×68 px so
-               the 6-line text stack never gets crushed. sm+ restores full 88×88. */}
+          {/* ─ Right: QR code ─ single responsive instance, always visible */}
           {origin && (
-            <div className="shrink-0 rounded-xl bg-white border border-gray-200 shadow-sm flex items-center justify-center h-[68px] w-[68px] p-[4px] sm:h-[88px] sm:w-[88px] sm:p-[6px]">
-              {/* Mobile QR — 58 px */}
-              <span className="sm:hidden">
-                <QRCodeSVG value={qrValue} size={58} bgColor="#ffffff" fgColor="#1d1d1f" level="M" />
-              </span>
-              {/* sm+ QR — 74 px */}
-              <span className="hidden sm:block">
-                <QRCodeSVG value={qrValue} size={74} bgColor="#ffffff" fgColor="#1d1d1f" level="M" />
-              </span>
+            <div className="shrink-0 rounded-xl bg-white border border-gray-200 shadow-sm flex items-center justify-center h-[72px] w-[72px] p-[5px]">
+              <QRCodeSVG value={qrValue} size={60} bgColor="#ffffff" fgColor="#1d1d1f" level="M" />
             </div>
           )}
         </div>
