@@ -344,7 +344,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col bg-white min-h-screen w-full overflow-x-hidden">
+    <div className="flex flex-col bg-white min-h-screen w-full overflow-x-clip">
 
       {/* ══ ZONE 1 — Sticky header: 4 person reminder cards ══════════════════ */}
       {/* pt-safe: pushes content below iOS notch / Dynamic Island               */}
