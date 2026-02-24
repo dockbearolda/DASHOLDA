@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 
 import { prisma } from "@/lib/prisma";
-import { Header } from "@/components/layout/header";
 import { OldaBoard } from "@/components/olda/olda-board";
 import type { Order } from "@/types/order";
 
@@ -47,9 +46,6 @@ export default async function OldaDashboardPage() {
   }
 
   return (
-    <div>
-      <Header title="Dashboard OLDA" />
-      <OldaBoard orders={orders} />
-    </div>
+    <OldaBoard orders={orders} />
   );
 }
