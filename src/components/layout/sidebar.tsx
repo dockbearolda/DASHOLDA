@@ -14,7 +14,6 @@ import {
 import { cn } from "@/lib/utils";
 
 const primaryNav = [
-  { label: "Vue d'ensemble", href: "/dashboard",      icon: LayoutDashboard },
   { label: "Dashboard OLDA", href: "/dashboard/olda", icon: Factory },
 ];
 
