@@ -200,7 +200,6 @@ function OrderFicheModal({
           <div className="flex items-start gap-5">
             <div className="flex-1 space-y-[6px] min-w-0">
               <p className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Bon de Commande</p>
-              <p className="text-[17px] font-bold text-gray-900 truncate leading-tight">{reference}</p>
               <p className="text-[14px] font-semibold text-gray-800 truncate">{order.customerName}</p>
               <p className="text-[13px] text-gray-600 truncate">{order.customerPhone ?? "—"}</p>
               <p className={cn(
@@ -214,8 +213,14 @@ function OrderFicheModal({
               </p>
               <p className="text-[12px] text-gray-500 truncate">
                 <span className="font-medium text-gray-400">DTF AR : </span>
-                {dtfSize ?? (isDtfCode(logoArriere) ? logoArriere : "—")}
+                {dtfSize ?? "—"}
               </p>
+              {order.notes && (
+                <p className="text-[12px] text-gray-600 truncate italic">
+                  <span className="font-medium text-gray-400">Note : </span>
+                  {order.notes}
+                </p>
+              )}
             </div>
 
             {origin && (
