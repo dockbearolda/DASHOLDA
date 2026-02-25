@@ -7,16 +7,19 @@
  *   ┌─ sticky header ─ RemindersGrid (4 person cards) ───────────────┐
  *   ├─ hero (title + live indicator) ────────────────────────────────┤
  *   ├─ tabs: Tshirt | Tasse (soon) | Accessoire (soon) ──────────────┤
- *   └─ workspace: single kanban grid, ALL columns use OrderCard ┘
+ *   └─ workspace: single kanban grid, ALL columns use TshirtOrderCard ┘
  */
 
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
-import type { Order, OrderStatus, OldaExtraData } from "@/types/order";
+import type { Order, OrderStatus } from "@/types/order";
 import { Inbox, Pencil, Layers, Phone, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NoteData, TodoItem } from "./person-note-modal";
 import { RemindersGrid } from "./reminders-grid";
-import { OrderCard } from "./order-card";
+import { TshirtOrderCard } from "./tshirt-order-card";
+import { DTFProductionTable } from "./dtf-production-table";
+import { PRTRequestPanel } from "./prt-request-panel";
+
 
 // ════════════════════════════════════════════════════════════════════
 //  SYSTÈME DE SESSION TEMPORELLE  (Morning & Afternoon Reset)
@@ -231,31 +234,26 @@ const PEOPLE = [
   { key: "amandine", icon: Phone  },
 ] as const;
 
-// ── Category tabs ──────────────────────────────────────────────────────────────
-
-type BoardTab = "tshirt" | "mug" | "other";
-
-const TABS: { key: BoardTab; label: string; enabled: boolean }[] = [
-  { key: "tshirt", label: "Commande Tshirt",    enabled: true  },
-  { key: "mug",    label: "Commande Tasse",      enabled: false },
-  { key: "other",  label: "Commande accessoire", enabled: false },
-];
 
 // ── Kanban column ──────────────────────────────────────────────────────────────
-// All columns use OrderCard (Apple Premium bubble + accordion).
+// All columns use TshirtOrderCard (full card with QR, L1-L6, todos).
 
 function KanbanColumn({
   col,
   orders,
   newOrderIds,
   onDropOrder,
+  onDeleteOrder,
 }: {
   col: KanbanCol;
   orders: Order[];
   newOrderIds?: Set<string>;
   onDropOrder?: (orderId: string, newStatus: OrderStatus) => void;
+  onDeleteOrder?: (orderId: string) => void;
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
+  // ── Auto-scaling : mode compact si colonne dense ───────────────────────────
+  const compact = orders.length > 5;
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -295,8 +293,9 @@ function KanbanColumn({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={cn(
-          "flex flex-col gap-2 p-2 rounded-lg transition-all",
-          isDragOver ? "bg-blue-50 border-2 border-blue-300 shadow-md" : ""
+          "flex flex-col p-2 rounded-xl transition-all",
+          compact ? "gap-1.5" : "gap-3",
+          isDragOver ? "bg-blue-50 border-2 border-blue-300 shadow-md" : "",
         )}
       >
         {orders.length === 0 ? (
@@ -312,9 +311,14 @@ function KanbanColumn({
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("orderId", o.id);
               }}
-              className="cursor-grab active:cursor-grabbing"
+              className="w-full cursor-grab active:cursor-grabbing"
             >
-              <OrderCard data={o.shippingAddress as OldaExtraData || {}} orderId={o.id} />
+              <TshirtOrderCard
+                order={o}
+                isNew={newOrderIds?.has(o.id)}
+                onDelete={onDeleteOrder ? () => onDeleteOrder(o.id) : undefined}
+                compact={compact}
+              />
             </div>
           ))
         )}
@@ -330,11 +334,13 @@ function KanbanBoard({
   orders,
   newOrderIds,
   onUpdateOrder,
+  onDeleteOrder,
 }: {
   columns: KanbanCol[];
   orders: Order[];
   newOrderIds?: Set<string>;
   onUpdateOrder?: (orderId: string, newStatus: OrderStatus) => void;
+  onDeleteOrder?: (orderId: string) => void;
 }) {
   const ordersByStatus = useMemo(() => {
     const map: Record<string, Order[]> = {};
@@ -366,6 +372,7 @@ function KanbanBoard({
             orders={ordersByStatus[col.status] ?? []}
             newOrderIds={newOrderIds}
             onDropOrder={handleDropOrder}
+            onDeleteOrder={onDeleteOrder}
           />
         ))}
       </div>
@@ -411,12 +418,12 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
   const [sseConnected, setSseConnected] = useState(false);
   const [notes, setNotes]               = useState<Record<string, NoteData>>({});
   const [notesReady, setNotesReady]     = useState(false);
-  const [activeTab, setActiveTab]       = useState<BoardTab>("tshirt");
+  const [viewTab, setViewTab] = useState<'flux' | 'commandes' | 'prt' | 'production_dtf'>('flux');
 
   // ── Session temporelle ────────────────────────────────────────────────────
   const [session, setSession]               = useState<OldaSession | null>(null);
-  const [sessionChecked, setSessionChecked] = useState(false);  // true après lecture localStorage
-  const [wasExpired, setWasExpired]         = useState(false);   // true si la dernière session était expirée
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [wasExpired, setWasExpired]         = useState(false);
 
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef   = useRef(true);
@@ -578,26 +585,28 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
   }, []);
 
   // ── Connexion utilisateur ──────────────────────────────────────────────────
-  // session.name est la clé envoyée à /api/notes/${name} pour les rappels et tâches.
-  // Chaque personne conserve ses données même après expiration de sa session.
   const handleLogin = useCallback((name: string) => {
     const s = saveSession(name);
     setSession(s);
     setWasExpired(false);
   }, []);
 
+  // ── Suppression d'une commande (optimistic) ───────────────────────────────
+  const handleDeleteOrder = useCallback(async (orderId: string) => {
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+    try {
+      await fetch(`/api/orders/${orderId}`, { method: "DELETE" });
+    } catch {
+      refreshOrders();
+    }
+  }, [refreshOrders]);
+
   // ── Categorise orders ──────────────────────────────────────────────────────
 
-  const { tshirt, mug, other } = useMemo(() => {
-    const tshirt: Order[] = [], mug: Order[] = [], other: Order[] = [];
-    for (const o of orders) {
-      const t = detectProductType(o);
-      if      (t === "tshirt") tshirt.push(o);
-      else if (t === "mug")    mug.push(o);
-      else                     other.push(o);
-    }
-    return { tshirt, mug, other };
-  }, [orders]);
+  const tshirt = useMemo(
+    () => orders.filter((o) => detectProductType(o) === "tshirt"),
+    [orders]
+  );
 
   const notesMap = Object.fromEntries(PEOPLE.map((p) => [p.key, notes[p.key]?.todos ?? []]));
 
@@ -608,9 +617,6 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
     );
   }, []);
 
-  // Select orders for active tab
-  const activeOrders = activeTab === "tshirt" ? tshirt : activeTab === "mug" ? mug : other;
-
   // ── Render ─────────────────────────────────────────────────────────────────
 
   // Attend la lecture localStorage pour éviter un flash de l'écran de connexion
@@ -619,81 +625,66 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
   if (!session) return <LoginScreen onLogin={handleLogin} wasExpired={wasExpired} />;
 
   return (
-    // SF Pro via la pile système Apple : sur macOS/iOS, -apple-system résout SF Pro.
-    // Sur les autres plateformes, Helvetica Neue / Arial prend le relais.
     <div
-      className="flex flex-col bg-white min-h-screen w-full overflow-x-clip"
-      style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif" }}
+      className="flex flex-col h-svh w-full overflow-hidden bg-white"
+      style={{ fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" }}
     >
 
-      {/* ══ ZONE 1 — Sticky header: 4 person reminder cards ══════════════════ */}
-      {/* pt-safe: pushes content below iOS notch / Dynamic Island               */}
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-gray-200 shadow-sm pt-safe">
-        <div className="px-4 sm:px-6 py-3">
-          {/* activeUser : met en valeur la carte de la personne connectée */}
-          <RemindersGrid key={String(notesReady)} notesMap={notesMap} activeUser={session.name} />
-        </div>
-      </div>
-
-      {/* ══ ZONE 2 — Scrollable workspace ════════════════════════════════════ */}
-      <div className="px-4 sm:px-6 py-5 md:py-6 space-y-5">
-
-        {/* ── Hero ── */}
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <p className="text-[13px] md:text-[14px] font-semibold uppercase tracking-widest text-gray-400 mb-1">
-              Atelier
-            </p>
-            <h1 className="text-[22px] md:text-[26px] font-bold tracking-tight text-gray-900">
-              Dashboard OLDA
-            </h1>
-            <p className="text-[13px] sm:text-[15px] text-gray-500 mt-0.5">
-              Vue d&apos;ensemble · production
-            </p>
-          </div>
-          <div className="shrink-0 pb-1">
-            <LiveIndicator connected={sseConnected} />
-          </div>
-        </div>
-
-        {/* ── Navigation tabs — min-h-[44px] = Apple HIG 44 pt touch target ── */}
-        {/* overflow-x-auto: prevents long labels from overflowing into Kanban */}
-        <div className="border-b border-gray-200 flex gap-0 overflow-x-auto no-scrollbar">
-          {TABS.map((tab) => (
+      {/* ── Header : tabs à gauche · indicateur live à droite ─────────────── */}
+      <div className="shrink-0 px-4 sm:px-6 pt-5 pb-3 flex items-center gap-3 border-b border-gray-100">
+        {/* Tabs — alignés à gauche */}
+        <div className="flex gap-1 p-1 rounded-xl bg-gray-100/80">
+          {(['flux', 'commandes', 'prt', 'production_dtf'] as const).map((v) => (
             <button
-              key={tab.key}
-              disabled={!tab.enabled}
-              onClick={() => tab.enabled && setActiveTab(tab.key)}
+              key={v}
+              onClick={() => setViewTab(v)}
               className={cn(
-                // [touch-action:manipulation] removes iOS 300 ms tap delay
-                "relative shrink-0 px-4 min-h-[44px] flex items-center",
-                "text-[14px] font-medium transition-colors whitespace-nowrap pb-[2px]",
+                "px-3.5 py-1.5 rounded-[10px] text-[13px] font-semibold transition-all",
                 "[touch-action:manipulation]",
-                tab.key === activeTab
-                  ? "text-blue-600 cursor-pointer"
-                  : tab.enabled
-                  ? "text-gray-500 hover:text-gray-700 cursor-pointer"
-                  : "text-gray-300 cursor-not-allowed"
+                viewTab === v
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
               )}
             >
-              {tab.label}
-              {!tab.enabled && (
-                <span className="ml-1.5 text-[11px] text-gray-300 font-normal">bientôt</span>
-              )}
-              {tab.key === activeTab && (
-                <span className="absolute bottom-0 left-2 right-2 h-[2px] bg-blue-500 rounded-full" />
-              )}
+              {v === 'flux' ? 'Flux' : v === 'commandes' ? 'Commandes' : v === 'prt' ? 'PRT' : 'Production'}
             </button>
           ))}
         </div>
+        {/* Indicateur live — repoussé à droite */}
+        <div className="ml-auto">
+          <LiveIndicator connected={sseConnected} />
+        </div>
+      </div>
 
-        {/* ── ZONE 3 — Kanban workspace (single board, updates with tab) ── */}
-        <KanbanBoard
-          columns={TSHIRT_COLUMNS}
-          orders={activeOrders}
-          newOrderIds={newOrderIds}
-          onUpdateOrder={handleUpdateOrder}
-        />
+      {/* ── Contenu principal ───────────────────────────────────────────────── */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-5">
+
+        {/* ══ VUE FLUX — 4 cartes collaborateurs ══════════════════════════════ */}
+        <div className={cn(viewTab !== 'flux' && 'hidden')}>
+          <RemindersGrid key={String(notesReady)} notesMap={notesMap} activeUser={session.name} />
+        </div>
+
+        {/* ══ VUE COMMANDES — Kanban t-shirts uniquement ══════════════════════ */}
+        <div className={cn(viewTab !== 'commandes' && 'hidden')}>
+          <KanbanBoard
+            columns={TSHIRT_COLUMNS}
+            orders={tshirt}
+            newOrderIds={newOrderIds}
+            onUpdateOrder={handleUpdateOrder}
+            onDeleteOrder={handleDeleteOrder}
+          />
+        </div>
+
+        {/* ══ VUE PRT — Demandes vers Loïc ═══════════════════════════════════ */}
+        <div className={cn(viewTab !== 'prt' && 'hidden')}>
+          <PRTRequestPanel activeUser={session.name} />
+        </div>
+
+        {/* ══ VUE PRODUCTION DTF ═════════════════════════════════════════════ */}
+        <div className={cn(viewTab !== 'production_dtf' && 'hidden', 'h-full')}>
+          <DTFProductionTable activeUser={session.name} />
+        </div>
+
       </div>
 
       {/* ── New-order toast ── */}
