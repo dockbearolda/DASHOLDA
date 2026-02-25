@@ -110,9 +110,6 @@ function transformExternalToOlda(data: ExternalOrderFormat): OldaCommandePayload
     logoAvant: data.fiche?.visuelAvant,
     logoArriere: data.fiche?.visuelArriere,
     deadline: data.deadline,
-    fiche: {
-      coteLogoAr: data.fiche?.tailleDTFAr,
-    },
     prix: {
       total: totalPrice,
     },
@@ -133,6 +130,9 @@ function transformExternalToOlda(data: ExternalOrderFormat): OldaCommandePayload
       statutPrt: data.prt.statutPrt,
     } : undefined,
   };
+
+  // Assigner fiche séparément pour éviter le conflit de types avec ExternalOrderFormat.fiche
+  payload.fiche = { coteLogoAr: data.fiche?.tailleDTFAr };
 
   // Note interne (sans les infos PRT qui sont désormais dans extra)
   if (data.note) {
