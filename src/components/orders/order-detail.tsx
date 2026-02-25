@@ -754,36 +754,12 @@ export function OrderDetail({ order: initialOrder }: OrderDetailProps) {
           <DataRow label="Taille DTF AR" value={extra.fiche?.tailleDTFAr} last />
         </SectionCard>
 
-        {/* ══ 5. LOGOS ═══════════════════════════════════════════════════════ */}
-        {(extra.fiche?.visuelAvant || extra.fiche?.visuelArriere ||
-          undefined || undefined) && (
+        {/* ══ 5. VISUELS DTF ══════════════════════════════════════════════════ */}
+        {(extra.fiche?.visuelAvant || extra.fiche?.visuelArriere) && (
           <SectionCard>
-            <SectionLabel>Logos</SectionLabel>
-            <DataRow label="Logo avant"   value={extra.fiche?.visuelAvant}   mono />
-            <DataRow
-              label="Couleur avant"
-              value={
-                undefined ? (
-                  <span className="flex items-center gap-2 justify-end">
-                    {undefined}
-                    <ColorDot color={undefined} />
-                  </span>
-                ) : undefined
-              }
-            />
-            <DataRow label="Logo arrière" value={extra.fiche?.visuelArriere} mono />
-            <DataRow
-              label="Couleur arrière"
-              value={
-                undefined ? (
-                  <span className="flex items-center gap-2 justify-end">
-                    {undefined}
-                    <ColorDot color={undefined} />
-                  </span>
-                ) : undefined
-              }
-              last
-            />
+            <SectionLabel>Visuels DTF</SectionLabel>
+            <DataRow label="Avant"   value={extra.fiche?.visuelAvant}   mono />
+            <DataRow label="Arrière" value={extra.fiche?.visuelArriere} mono last />
           </SectionCard>
         )}
 
