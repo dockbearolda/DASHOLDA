@@ -727,10 +727,6 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
           <PRTManager items={allPrtItems} onItemsChange={setAllPrtItems} />
         </div>
 
-        {/* ══ VUE PRT — Demandes vers Loïc ═══════════════════════════════════ */}
-        <div className={cn(viewTab !== 'prt' && 'hidden')}>
-          <PRTRequestPanel activeUser={session.name} />
-        </div>
 
         {/* ══ VUE PRODUCTION DTF ═════════════════════════════════════════════ */}
         <div className={cn(viewTab !== 'production_dtf' && 'hidden', 'h-full')}>
