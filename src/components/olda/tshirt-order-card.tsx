@@ -471,6 +471,7 @@ export function TshirtOrderCard({ order: initialOrder, isNew, onDelete, compact 
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editOpen,  setEditOpen]  = useState(false);
+  const [showOrderId, setShowOrderId] = useState(false);
 
   const qrValue = origin ? `${origin}/dashboard/orders/${order.id}` : order.orderNumber;
 
@@ -503,16 +504,16 @@ export function TshirtOrderCard({ order: initialOrder, isNew, onDelete, compact 
 
   return (
     <>
-      {/* ── Card shell — Bulle Apple 16px, ombre 0 4px 12px ── */}
+      {/* ── Card shell — Apple Premium: arrondi 16px, ombre ultra-légère ── */}
       <div
         className={cn(
-          "relative group/card rounded-2xl bg-white border overflow-hidden",
+          "relative group/card rounded-[16px] bg-white border border-gray-200 overflow-hidden",
           "transition-all duration-200 select-none [touch-action:manipulation]",
-          "shadow-[0_4px_12px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] hover:border-gray-300/80",
+          "shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]",
           "flex flex-col",
           isNew
             ? "border-blue-400/60 ring-2 ring-blue-400/30 animate-fade-up"
-            : categoryColor
+            : "border-gray-200/80"
         )}
       >
         {/* ── Boutons d'action — Éditer (bleu) + Supprimer (rouge) ── */}
@@ -542,67 +543,93 @@ export function TshirtOrderCard({ order: initialOrder, isNew, onDelete, compact 
           )}
         </div>
 
-        {/* ══ Layout horizontal : QR gauche · Infos droite ═══════════════════ */}
+        {/* ══ HEADER: QR gauche + Données brutes droite ══════════════════════ */}
         <div
           className={cn(
-            "flex items-stretch cursor-pointer select-none w-full",
+            "flex items-stretch cursor-pointer select-none w-full border-b border-gray-200",
             compact ? "h-[84px]" : "h-[96px]",
           )}
           onClick={() => setModalOpen(true)}
         >
-          {/* ─ Colonne gauche : QR Code — taille fixe alignée ─ */}
+          {/* ─ QR Code gauche — bords arrondis 8px, ID masqué ─ */}
           {origin && (
             <div className={cn(
-              "shrink-0 flex items-center justify-center border-r border-gray-100",
+              "shrink-0 flex flex-col items-center justify-center gap-1",
               compact ? "p-2" : "p-2.5",
             )}>
-              <div className="rounded-xl bg-white border border-gray-100 p-[4px]">
+              <div
+                className="rounded-lg bg-white border border-gray-100 p-1 cursor-pointer hover:border-gray-400 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOrderId(!showOrderId);
+                }}
+                title="Cliquez pour voir l'ID"
+              >
                 <QRCodeSVG value={qrValue} size={qrSize} bgColor="#ffffff" fgColor="#1d1d1f" level="M" />
               </div>
+              {/* ID masqué — visible au clic */}
+              {showOrderId && (
+                <p style={{
+                  fontSize: compact ? 8 : 9,
+                  fontFamily: "monospace",
+                  color: "#8e8e93",
+                  fontWeight: 600,
+                  maxWidth: "70px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap"
+                }} title={order.id}>
+                  {order.id}
+                </p>
+              )}
             </div>
           )}
 
-          {/* ─ Colonne droite : Identité · Production · Prix ─ */}
+          {/* ─ Colonne droite : Données brutes sans labels ─ */}
           <div className={cn(
             "flex-1 min-w-0 flex flex-col justify-between overflow-hidden",
-            compact ? "px-2.5 py-2 gap-1.5" : "px-3 py-2.5 gap-2",
+            compact ? "px-2.5 py-2 gap-1" : "px-3 py-2.5 gap-1.5",
           )}>
 
-            {/* Bloc Identité */}
-            <div className="flex flex-col gap-[2px]">
-              {/* NOM — uppercase semibold */}
-              <p className="truncate leading-tight" style={{ fontSize: compact ? 13.5 : 15, fontWeight: 600, letterSpacing: "0.02em", color: "#1d1d1f", textTransform: "uppercase" }}>
-                {nom}
-              </p>
-              {/* Prénom — regular */}
-              <p className="truncate leading-tight" style={{ fontSize: compact ? 12.5 : 14, fontWeight: 400, color: "#3a3a3c" }}>
-                {prenom}
-              </p>
+            {/* Données principales — sans labels, juste valeurs */}
+            <div className="flex flex-col gap-0.5 min-w-0">
+              {/* Nom (uppercase) */}
+              {nom && (
+                <p className="truncate leading-tight" style={{ fontSize: compact ? 13.5 : 15, fontWeight: 600, letterSpacing: "0.02em", color: "#1d1d1f", textTransform: "uppercase" }}>
+                  {nom}
+                </p>
+              )}
+              {/* Prénom */}
+              {prenom && prenom !== nom && (
+                <p className="truncate leading-tight" style={{ fontSize: compact ? 12.5 : 14, fontWeight: 400, color: "#3a3a3c" }}>
+                  {prenom}
+                </p>
+              )}
               {/* Téléphone */}
-              <p className="truncate" style={{ fontSize: compact ? 11 : 12, color: "#8e8e93" }}>
-                {order.customerPhone ?? "—"}
-              </p>
-              {/* Référence — juste sous le téléphone, monospace discret */}
-              <p className="truncate font-mono" style={{ fontSize: compact ? 9 : 10, color: "#aeaeb2" }}>
-                {reference}
-              </p>
+              {order.customerPhone && (
+                <p className="truncate" style={{ fontSize: compact ? 11 : 12, color: "#8e8e93" }}>
+                  {order.customerPhone}
+                </p>
+              )}
+              {/* Date limite */}
+              {extra.deadline && deadlineLabel(extra.deadline) && (
+                <p className={cn("truncate", deadlineLabel(extra.deadline)?.includes("retard") ? "text-red-500" : "text-gray-700")} style={{ fontSize: compact ? 11 : 12 }}>
+                  {deadlineLabel(extra.deadline)}
+                </p>
+              )}
+              {/* Taille DTF AR */}
+              {dtfSize && (
+                <p className="truncate font-mono" style={{ fontSize: compact ? 11 : 12, fontWeight: 600, color: "#555" }}>
+                  {dtfSize}
+                </p>
+              )}
             </div>
 
-            {/* Bloc Production — DTF AR */}
-            <div>
-              <p className="truncate mb-0.5" style={{ fontSize: compact ? 9 : 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#aeaeb2" }}>
-                DTF AR
-              </p>
-              <p className="truncate" style={{ fontSize: compact ? 16 : 18, fontWeight: 700, color: "#333333", lineHeight: 1.15 }}>
-                {dtfSize ?? "—"}
-              </p>
-            </div>
-
-            {/* Prix — couleur paiement Apple */}
-            <p className="tabular-nums" style={{
-              fontSize: compact ? 13.5 : 15,
+            {/* Prix total — coin bas droit */}
+            <p className="tabular-nums text-right" style={{
+              fontSize: compact ? 14 : 16,
               fontWeight: 700,
-              color: order.paymentStatus === "PAID" ? "#28cd41" : "#ff3b30",
+              color: order.paymentStatus === "PAID" ? "#34C759" : "#FF3B30",
             }}>
               {fmtPrice(order.total, currency)}
             </p>
@@ -610,24 +637,64 @@ export function TshirtOrderCard({ order: initialOrder, isNew, onDelete, compact 
           </div>
         </div>
 
-        {/* ── Section Note — hauteur fixe h-7 pour cohérence entre cartes ── */}
-        {order.notes?.trim() && (
-          <div
-            className="h-7 border-t border-gray-100 shrink-0 flex items-center gap-1.5 overflow-hidden px-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#aeaeb2", flexShrink: 0 }}>
-              Note
+        {/* ══ FOOTER: Collection, Référence, Taille, Note + Paiement ═════════ */}
+        <div className="flex flex-col gap-0 border-t border-gray-200">
+          {/* Ligne 1: Collection, Référence, Taille */}
+          <div className={cn(
+            "flex items-center justify-between overflow-hidden border-b border-gray-200",
+            compact ? "px-2.5 py-1.5 text-xs" : "px-3 py-2 text-sm"
+          )}>
+            {/* Collection */}
+            {order.category && (
+              <span style={{ fontSize: compact ? 10 : 11, color: "#8e8e93" }}>
+                {order.category}
+              </span>
+            )}
+            {/* Référence */}
+            <span style={{ fontSize: compact ? 9 : 10, fontFamily: "monospace", color: "#aeaeb2", fontWeight: 500 }}>
+              {reference}
             </span>
-            <span
-              className="flex-1 text-gray-500 truncate"
-              style={{ fontSize: compact ? 10 : 11 }}
-              title={order.notes}
-            >
-              {order.notes}
+            {/* Taille */}
+            {dtfSize && (
+              <span style={{ fontSize: compact ? 10 : 11, color: "#555", fontWeight: 600 }}>
+                {dtfSize}
+              </span>
+            )}
+          </div>
+
+          {/* Ligne 2: Note (si existe) */}
+          {order.notes?.trim() && (
+            <div className={cn(
+              "border-b border-gray-200 overflow-hidden",
+              compact ? "px-2.5 py-1.5" : "px-3 py-2"
+            )}>
+              <p style={{ fontSize: compact ? 10 : 11, color: "#666", fontStyle: "italic" }} className="truncate" title={order.notes}>
+                {order.notes}
+              </p>
+            </div>
+          )}
+
+          {/* Ligne 3: Statut paiement + Prix */}
+          <div className={cn(
+            "flex items-center justify-between",
+            compact ? "px-2.5 py-1.5" : "px-3 py-2"
+          )}>
+            <div className="flex items-center gap-1.5">
+              <PaymentDot status={order.paymentStatus} />
+              <span style={{ fontSize: compact ? 10 : 11, color: "#8e8e93" }}>
+                {order.paymentStatus === "PAID" ? "Payé" : "Non payé"}
+              </span>
+            </div>
+            <span style={{
+              fontSize: compact ? 13 : 14,
+              fontWeight: 700,
+              color: "#1d1d1f",
+              fontFamily: "monospace"
+            }} className="tabular-nums">
+              {fmtPrice(order.total, currency)}
             </span>
           </div>
-        )}
+        </div>
 
       </div>
 
