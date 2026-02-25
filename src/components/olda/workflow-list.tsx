@@ -119,7 +119,7 @@ function WorkflowItemRow({
         onDragStart={() => setIsDragging(true)}
         onDragCapture={() => setIsDragging(true)}
         style={{ opacity, scale, x }}
-        className="relative z-10"
+        className="relative z-10 group"
       >
         <div
           className={cn(
@@ -164,6 +164,21 @@ function WorkflowItemRow({
             >
               {item.title}
             </span>
+          )}
+
+          {/* Quick delete button (visible on hover) */}
+          {!isEditing && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              whileHover={{ opacity: 1, scale: 1 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleDelete();
+              }}
+              className="shrink-0 p-1 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              <Trash2 className="h-4 w-4" />
+            </motion.button>
           )}
         </div>
       </motion.div>
