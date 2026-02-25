@@ -18,7 +18,6 @@ import type { NoteData, TodoItem } from "./person-note-modal";
 import { RemindersGrid } from "./reminders-grid";
 import { TshirtOrderCard } from "./tshirt-order-card";
 import { DTFProductionTable } from "./dtf-production-table";
-import { PRTRequestPanel } from "./prt-request-panel";
 import { WorkflowListsGrid } from "./workflow-list";
 import { PRTManager } from "./prt-manager";
 
