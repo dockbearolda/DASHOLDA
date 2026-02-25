@@ -1,17 +1,15 @@
 "use client";
 
 /**
- * PRTManager — Premium Apple-style table for Loïc's PRT requests
- * ─ 5 columns: Client Name, Dimensions, Design, Color, Quantity
- * ─ Checkbox to mark as "FAIT" (done)
- * ─ Multiple selection with delete menu
- * ─ Add new row at top
- * ─ Swipe-to-delete
- * ─ Apple design: Inter font, 1px borders, 18px radius, alternating bg
+ * PRTManager — Grid-based Apple-style list for PRT requests
+ * ─ Strict column alignment with grid-cols-[40px_1fr_1fr_1fr_1fr_80px_40px]
+ * ─ Zero friction interaction: click dot to toggle, click trash to delete
+ * ─ Drag & drop vertical reordering
+ * ─ Apple design: Inter font, antialiased, light gray hover
  */
 
-import { useState, useCallback, useMemo, useRef, useEffect } from "react";
-import { motion, Reorder, AnimatePresence, useMotionValue, useTransform, animate } from "framer-motion";
+import { useState, useCallback, useMemo } from "react";
+import { motion, Reorder, AnimatePresence } from "framer-motion";
 import { Trash2, Plus, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -28,11 +26,14 @@ interface PRTItem {
   updatedAt: string;
 }
 
-
 interface PRTManagerProps {
   items: PRTItem[];
   onItemsChange?: (items: PRTItem[]) => void;
 }
+
+// Grid column layout: [checkbox] [client] [dimensions] [design] [color] [quantity] [actions]
+const GRID_COLS = "grid-cols-[40px_1fr_1fr_1fr_1fr_80px_40px]";
+const CELL_CLASS = "px-3 py-3 truncate";
 
 export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -115,17 +116,16 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
   }, [items, onItemsChange]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-[18px] bg-white border border-gray-100 shadow-sm p-4">
+    <div className="flex flex-col gap-3 rounded-[18px] bg-white border border-gray-100 shadow-sm p-4"
+      style={{
+        fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
+        WebkitFontSmoothing: "antialiased",
+        MozOsxFontSmoothing: "grayscale",
+      }}
+    >
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2
-          className="text-xs font-bold text-gray-900 uppercase tracking-wider"
-          style={{
-            fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-            WebkitFontSmoothing: "antialiased",
-            MozOsxFontSmoothing: "grayscale",
-          }}
-        >
+      <div className="flex items-center justify-between pb-3">
+        <h2 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
           Demandes PRT
         </h2>
         <button
@@ -137,93 +137,97 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
         </button>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto">
-        <table
-          className="w-full text-sm"
-          style={{
-            fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-            WebkitFontSmoothing: "antialiased",
-            MozOsxFontSmoothing: "grayscale",
+      {/* Grid Header */}
+      <div className={cn("grid gap-0 border-b border-gray-100 pb-2", GRID_COLS)}>
+        <div className="flex items-center justify-center">
+          <input
+            type="checkbox"
+            checked={selectedIds.size === sortedItems.length && sortedItems.length > 0}
+            onChange={(e) => {
+              if (e.target.checked) {
+                setSelectedIds(new Set(sortedItems.map((i) => i.id)));
+              } else {
+                setSelectedIds(new Set());
+              }
+            }}
+            className="w-4 h-4 rounded cursor-pointer"
+          />
+        </div>
+        <div className="text-left text-xs font-semibold text-gray-600 px-3">Client</div>
+        <div className="text-left text-xs font-semibold text-gray-600 px-3">Dimensions</div>
+        <div className="text-left text-xs font-semibold text-gray-600 px-3">Design</div>
+        <div className="text-left text-xs font-semibold text-gray-600 px-3">Couleur</div>
+        <div className="text-right text-xs font-semibold text-gray-600 px-3">Qté</div>
+        <div className="text-center text-xs font-semibold text-gray-600"></div>
+      </div>
+
+      {/* Grid Items */}
+      <div className="flex flex-col gap-0">
+        <Reorder.Group
+          as="div"
+          axis="y"
+          values={sortedItems}
+          onReorder={(newOrder) => {
+            const reorderedItems = newOrder.map((item, idx) => ({
+              ...item,
+              position: idx,
+            }));
+            onItemsChange?.(items.filter((i) => !reorderedItems.some((r) => r.id === i.id)).concat(reorderedItems));
+            Promise.all(
+              reorderedItems.map((item) =>
+                fetch(`/api/prt-requests/${item.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ position: item.position }),
+                })
+              )
+            ).catch((err) => console.error("Failed to save positions:", err));
           }}
+          className="flex flex-col"
         >
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="w-5 px-3 py-2 text-left">
-                <input
-                  type="checkbox"
-                  checked={selectedIds.size === sortedItems.length && sortedItems.length > 0}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setSelectedIds(new Set(sortedItems.map((i) => i.id)));
-                    } else {
-                      setSelectedIds(new Set());
-                    }
-                  }}
-                  className="w-4 h-4 rounded cursor-pointer"
-                />
-              </th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-600">Client</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-600">Dimensions</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-600">Design</th>
-              <th className="px-3 py-2 text-left font-semibold text-gray-600">Couleur</th>
-              <th className="px-3 py-2 text-right font-semibold text-gray-600">Qté</th>
-              <th className="w-10"></th>
-            </tr>
-          </thead>
-          <tbody>
-            <Reorder.Group
-              as="tbody"
-              axis="y"
-              values={sortedItems}
-              onReorder={(newOrder) => {
-                const reorderedItems = newOrder.map((item, idx) => ({
-                  ...item,
-                  position: idx,
-                }));
-                onItemsChange?.(items.filter((i) => !reorderedItems.some((r) => r.id === i.id)).concat(reorderedItems));
-                Promise.all(
-                  reorderedItems.map((item) =>
-                    fetch(`/api/prt-requests/${item.id}`, {
-                      method: "PATCH",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ position: item.position }),
-                    })
-                  )
-                ).catch((err) => console.error("Failed to save positions:", err));
-              }}
-            >
-              <AnimatePresence mode="popLayout">
-                {sortedItems.map((item, idx) => (
-                  <Reorder.Item key={item.id} value={item} as="tr">
-                    <motion.tr
-                      layout
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, x: 100 }}
-                      className={cn(
-                        "border-b border-gray-100 transition-all group hover:bg-gray-50/30",
-                        idx % 2 === 0 ? "bg-white" : "bg-gray-50/50",
-                        item.done && "opacity-50"
-                      )}
-                    >
-                  <td className="px-3 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(item.id)}
-                      onChange={(e) => {
-                        const newSelected = new Set(selectedIds);
-                        if (e.target.checked) {
-                          newSelected.add(item.id);
-                        } else {
-                          newSelected.delete(item.id);
-                        }
-                        setSelectedIds(newSelected);
-                      }}
-                      className="w-4 h-4 rounded cursor-pointer"
-                    />
-                  </td>
-                  <td className="px-3 py-3">
+          <AnimatePresence mode="popLayout">
+            {sortedItems.length === 0 ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="py-8 text-center text-gray-400 text-sm"
+              >
+                Aucune demande PRT
+              </motion.div>
+            ) : (
+              sortedItems.map((item) => (
+                <Reorder.Item key={item.id} value={item} as="div">
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, x: 100 }}
+                    className={cn(
+                      "grid gap-0 border-b border-gray-100 transition-all group hover:bg-gray-50",
+                      GRID_COLS,
+                      item.done && "opacity-50"
+                    )}
+                  >
+                    {/* Checkbox (40px) */}
+                    <div className="flex items-center justify-center py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(item.id)}
+                        onChange={(e) => {
+                          const newSelected = new Set(selectedIds);
+                          if (e.target.checked) {
+                            newSelected.add(item.id);
+                          } else {
+                            newSelected.delete(item.id);
+                          }
+                          setSelectedIds(newSelected);
+                        }}
+                        className="w-4 h-4 rounded cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Client (1fr) */}
                     <input
                       type="text"
                       value={item.clientName}
@@ -244,11 +248,14 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
                           console.error("Failed to update:", err);
                         }
                       }}
-                      className="w-full bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 font-medium"
-                      style={{ minWidth: "120px" }}
+                      className={cn(
+                        CELL_CLASS,
+                        "bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 font-medium text-sm"
+                      )}
+                      placeholder="Nom client"
                     />
-                  </td>
-                  <td className="px-3 py-3">
+
+                    {/* Dimensions (1fr) */}
                     <input
                       type="text"
                       value={item.dimensions}
@@ -269,12 +276,14 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
                           console.error("Failed to update:", err);
                         }
                       }}
-                      className="w-full bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900"
-                      placeholder="e.g. 30x40cm"
-                      style={{ minWidth: "100px" }}
+                      className={cn(
+                        CELL_CLASS,
+                        "bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-sm"
+                      )}
+                      placeholder="30x40cm"
                     />
-                  </td>
-                  <td className="px-3 py-3">
+
+                    {/* Design (1fr) */}
                     <input
                       type="text"
                       value={item.design}
@@ -295,12 +304,14 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
                           console.error("Failed to update:", err);
                         }
                       }}
-                      className="w-full bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900"
-                      placeholder="Design name"
-                      style={{ minWidth: "100px" }}
+                      className={cn(
+                        CELL_CLASS,
+                        "bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-sm"
+                      )}
+                      placeholder="Design"
                     />
-                  </td>
-                  <td className="px-3 py-3">
+
+                    {/* Color (1fr) */}
                     <input
                       type="text"
                       value={item.color}
@@ -321,12 +332,14 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
                           console.error("Failed to update:", err);
                         }
                       }}
-                      className="w-full bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900"
-                      placeholder="e.g. Blanc"
-                      style={{ minWidth: "80px" }}
+                      className={cn(
+                        CELL_CLASS,
+                        "bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-sm"
+                      )}
+                      placeholder="Blanc"
                     />
-                  </td>
-                  <td className="px-3 py-3 text-right">
+
+                    {/* Quantity (80px) - right aligned */}
                     <input
                       type="number"
                       min="1"
@@ -348,37 +361,44 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
                           console.error("Failed to update:", err);
                         }
                       }}
-                      className="w-12 bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-right"
+                      className={cn(
+                        CELL_CLASS,
+                        "bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-sm text-right"
+                      )}
                     />
-                  </td>
-                    <td className="px-3 py-3">
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleToggleDone(item.id)}
-                          className={cn(
-                            "p-1.5 rounded-lg transition-colors",
-                            item.done
-                              ? "text-green-600 bg-green-50"
-                              : "text-gray-400 hover:text-green-600 hover:bg-green-50"
-                          )}
-                        >
-                          <Check className="h-4 w-4" />
-                        </button>
-                        <motion.button
-                          onClick={() => handleDelete(item.id)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </motion.button>
-                      </div>
-                    </td>
-                  </motion.tr>
+
+                    {/* Actions (40px) - Done & Delete */}
+                    <div className="flex items-center justify-end gap-0.5 py-3 pr-1">
+                      <motion.button
+                        onClick={() => handleToggleDone(item.id)}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        className={cn(
+                          "p-1.5 rounded-lg transition-all",
+                          item.done
+                            ? "text-green-600 bg-green-50"
+                            : "text-gray-400 hover:text-green-600 hover:bg-green-50"
+                        )}
+                        title="Marquer comme fait"
+                      >
+                        <Check className="h-4 w-4" />
+                      </motion.button>
+                      <motion.button
+                        onClick={() => handleDelete(item.id)}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                        title="Supprimer"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </motion.button>
+                    </div>
+                  </motion.div>
                 </Reorder.Item>
-              ))}
-              </AnimatePresence>
-            </Reorder.Group>
-          </tbody>
-        </table>
+              ))
+            )}
+          </AnimatePresence>
+        </Reorder.Group>
       </div>
 
       {/* Delete selected button */}
@@ -399,12 +419,6 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
         </motion.div>
       )}
 
-      {/* Empty state */}
-      {sortedItems.length === 0 && (
-        <div className="py-8 text-center text-gray-400 text-sm">
-          Aucune demande PRT
-        </div>
-      )}
     </div>
   );
 }
