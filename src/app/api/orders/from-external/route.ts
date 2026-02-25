@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { OldaCommandePayload } from "@/types/order";
 
 /**
  * POST /api/orders/from-external
@@ -85,27 +86,6 @@ interface ExternalOrderFormat {
   };
 }
 
-interface OldaCommandePayload {
-  commande: string;
-  nom: string;
-  telephone?: string;
-  reference?: string;
-  logoAvant?: string;
-  logoArriere?: string;
-  deadline?: string;
-  fiche?: {
-    coteLogoAr?: string;
-  };
-  prix?: {
-    total?: number;
-  };
-  paiement?: {
-    statut?: "OUI" | "NON";
-  };
-  collection?: string;
-  coloris?: string;
-  taille?: string;
-}
 
 function transformExternalToOlda(data: ExternalOrderFormat): OldaCommandePayload {
   // Fusionner prénom + nom
@@ -139,22 +119,23 @@ function transformExternalToOlda(data: ExternalOrderFormat): OldaCommandePayload
     paiement: {
       statut: paymentStatut,
     },
-    // Champs extra
+    // Champs extra produit
     collection: data.collection,
     coloris: data.fiche?.couleur,
     taille: data.taille,
+    typeProduit: data.fiche?.typeProduit,
+    // Bloc PRT stocké dans extra (shippingAddress)
+    prt: (data.prt && Object.values(data.prt).some(v => v)) ? {
+      type: data.prt.type,
+      refPrt: data.prt.refPrt,
+      taillePrt: data.prt.taillePrt,
+      quantite: data.prt.quantite,
+      statutPrt: data.prt.statutPrt,
+    } : undefined,
   };
 
-  // Stocker les infos PRT dans une note si présentes
-  if (data.prt && Object.values(data.prt).some(v => v)) {
-    const prtInfo = Object.entries(data.prt)
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(" | ");
-    // Ajouter à la note existante
-    const existingNote = data.note ? `${data.note} | PRT: ${prtInfo}` : `PRT: ${prtInfo}`;
-    (payload as any).notes = existingNote;
-  } else if (data.note) {
+  // Note interne (sans les infos PRT qui sont désormais dans extra)
+  if (data.note) {
     (payload as any).notes = data.note;
   }
 

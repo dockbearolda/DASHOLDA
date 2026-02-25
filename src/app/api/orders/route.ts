@@ -78,6 +78,13 @@ function mapOldaToWebhook(o: OldaCommandePayload): WebhookOrderPayload {
     deadline:    o.deadline,
     coteLogoAr:  o.fiche?.coteLogoAr,
     _source:     "olda_studio",
+    // Champs produit
+    collection:  o.collection,
+    coloris:     o.coloris,
+    taille:      o.taille,
+    typeProduit: o.typeProduit,
+    // Bloc PRT
+    prt:         o.prt,
   };
 
   // Items : logoDTF avant + arrière comme articles (permet la détection DTF existante)

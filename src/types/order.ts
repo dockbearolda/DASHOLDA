@@ -74,13 +74,22 @@ export interface OldaExtraData {
   deadline?: string;             // Date limite (ISO 8601 ou texte lisible)
   coteLogoAr?: string;           // Taille DTF arrière (ex: "A4", "270 mm")
   _source?: "olda_studio";       // Marqueur d'origine — ne pas modifier
-  // Champs produit supplémentaires
+  // Champs produit
   collection?: string;           // ex: "Homme", "Femme", "Enfant"
   coloris?: string;              // ex: "Noir", "Blanc", "Rouge"
   taille?: string;               // ex: "M", "L", "XL"
+  typeProduit?: string;          // ex: "T-Shirt Premium", "Polo"
   // Couleurs logos
   couleurLogoAvant?: string;     // ex: "Rose", "Blanc"
   couleurLogoArriere?: string;   // ex: "Argent", "Or"
+  // Bloc PRT (pressage)
+  prt?: {
+    type?: string;               // ex: "Plastisol", "Sublimation"
+    refPrt?: string;             // ex: "PRT-001"
+    taillePrt?: string;          // ex: "A4", "A3"
+    quantite?: string;           // ex: "50"
+    statutPrt?: string;          // ex: "En attente", "Programmé"
+  };
 }
 
 /** Payload JSON envoyé directement par Olda Studio vers POST /api/orders */
@@ -100,6 +109,18 @@ export interface OldaCommandePayload {
   };
   paiement?: {
     statut?: "OUI" | "NON";  // OUI = PAID, NON = PENDING
+  };
+  // Champs extra produit (passés dans shippingAddress)
+  collection?: string;
+  coloris?: string;
+  taille?: string;
+  typeProduit?: string;
+  prt?: {
+    type?: string;
+    refPrt?: string;
+    taillePrt?: string;
+    quantite?: string;
+    statutPrt?: string;
   };
 }
 
