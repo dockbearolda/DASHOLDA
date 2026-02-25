@@ -208,7 +208,7 @@ function OrderFicheModal({
               )}>
                 {deadlineTxt
                   ? <><AlertCircle className="h-2.5 w-2.5 shrink-0" />{deadlineTxt}</>
-                  : <span className="text-gray-300">Deadline : —</span>
+                  : <span className="text-gray-300">Limit : —</span>
                 }
               </p>
               <p className="text-[12px] text-gray-500 truncate">
