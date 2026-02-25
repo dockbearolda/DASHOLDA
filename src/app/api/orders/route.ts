@@ -70,42 +70,46 @@ function mapOldaToWebhook(o: OldaCommandePayload): WebhookOrderPayload {
   const totalAmt = Number(o.prix?.total ?? 0);
   const paymentStatus = o.paiement?.statut === "OUI" ? "PAID" : "PENDING";
 
-  // Extra data stockée dans shippingAddress pour la carte kanban
+  // Extra data stockée dans shippingAddress (JSONB) — nouveau schéma OldaExtraData
   const extra: OldaExtraData = {
-    reference:   o.reference,
-    logoAvant:   o.logoAvant,
-    logoArriere: o.logoArriere,
-    deadline:    o.deadline,
-    coteLogoAr:  o.fiche?.coteLogoAr,
-    _source:     "olda_studio",
-    // Champs produit
-    collection:  o.collection,
-    coloris:     o.coloris,
-    taille:      o.taille,
-    typeProduit: o.typeProduit,
-    // Bloc PRT
-    prt:         o.prt,
+    _source:    "olda_studio",
+    commande:   o.commande,
+    nom:        o.nom,
+    prenom:     o.prenom,
+    telephone:  o.telephone,
+    limit:      o.limit,
+    collection: o.collection,
+    reference:  o.reference,
+    taille:     o.taille,
+    note:       o.note,
+    fiche:      o.fiche,
+    prt:        o.prt,
+    prix:       o.prix,
+    paiement:   o.paiement,
   };
 
-  // Items : logoDTF avant + arrière comme articles (permet la détection DTF existante)
+  // Items : visuels DTF comme articles pour la détection côté kanban
   const items: WebhookOrderPayload["items"] = [];
-  if (o.logoAvant)   items.push({ name: "Logo Avant",   sku: o.logoAvant,   quantity: 1, price: 0 });
-  if (o.logoArriere) items.push({ name: "Logo Arrière", sku: o.logoArriere, quantity: 1, price: 0 });
+  const va = o.fiche?.visuelAvant;
+  const var2 = o.fiche?.visuelArriere;
+  if (va)   items.push({ name: "Logo Avant",   sku: va,   quantity: 1, price: 0 });
+  if (var2) items.push({ name: "Logo Arrière", sku: var2, quantity: 1, price: 0 });
   if (items.length === 0) {
-    // Fallback : au moins un article pour passer la validation
     items.push({ name: o.reference ?? "Commande T-shirt", sku: o.reference, quantity: 1, price: totalAmt });
   }
 
+  const fullName = [o.prenom, o.nom].filter(Boolean).join(" ") || o.nom || "";
+
   return {
     orderNumber:     o.commande,
-    customerName:    o.nom ?? "",
-    customerEmail:   "olda@studio",       // champ requis, non fourni par ce format
+    customerName:    fullName,
+    customerEmail:   "olda@studio",
     customerPhone:   o.telephone,
     status:          "COMMANDE_A_TRAITER",
     paymentStatus,
     total:           totalAmt,
     subtotal:        totalAmt,
-    notes:           o.deadline ?? undefined, // affiché comme "Limit" sur la carte legacy
+    notes:           o.note ?? undefined,
     category:        "t-shirt",
     shippingAddress: extra as unknown as import("@/types/order").Address,
     items,

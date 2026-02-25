@@ -88,58 +88,47 @@ interface ExternalOrderFormat {
 
 
 function transformExternalToOlda(data: ExternalOrderFormat): OldaCommandePayload {
-  // Fusionner prénom + nom
-  const nom = [data.prenom, data.nom].filter(Boolean).join(" ").trim() || "Client";
-
   // Convertir statut paiement
   const paymentStatut = data.paiement?.statut?.toUpperCase() === "OUI" ? "OUI" : "NON";
 
-  // Convertir prix total (supposé en cents)
+  // Convertir prix total en centimes
   const totalPrice = (() => {
     const val = data.prix?.total;
     if (!val) return 0;
-    const num = typeof val === "string" ? parseInt(val, 10) : val;
+    const num = typeof val === "string" ? parseInt(val, 10) : Number(val);
     return Number.isFinite(num) ? num : 0;
   })();
 
-  const payload: OldaCommandePayload = {
-    commande: data.commande || `EXT-${Date.now()}`,
-    nom,
-    telephone: data.telephone,
-    reference: data.reference,
-    logoAvant: data.fiche?.visuelAvant,
-    logoArriere: data.fiche?.visuelArriere,
-    deadline: data.deadline,
-    prix: {
-      total: totalPrice,
-    },
-    paiement: {
-      statut: paymentStatut,
-    },
-    // Champs extra produit
+  // Quantité PRT : convertir string → number
+  const prtQuantite = data.prt?.quantite
+    ? parseInt(data.prt.quantite, 10) || undefined
+    : undefined;
+
+  return {
+    commande:   data.commande || `EXT-${Date.now()}`,
+    nom:        data.nom || "Client",
+    prenom:     data.prenom,
+    telephone:  data.telephone,
     collection: data.collection,
-    coloris: data.fiche?.couleur,
-    taille: data.taille,
-    typeProduit: data.fiche?.typeProduit,
-    // Bloc PRT stocké dans extra (shippingAddress)
+    reference:  data.reference,
+    taille:     data.taille,
+    note:       data.note,
+    limit:      data.deadline,   // deadline → limit (nouveau nom)
+    fiche: {
+      visuelAvant:  data.fiche?.visuelAvant,
+      visuelArriere: data.fiche?.visuelArriere,
+      tailleDTFAr:  data.fiche?.tailleDTFAr,
+      typeProduit:  data.fiche?.typeProduit,
+      couleur:      data.fiche?.couleur,
+    },
     prt: (data.prt && Object.values(data.prt).some(v => v)) ? {
-      type: data.prt.type,
-      refPrt: data.prt.refPrt,
+      refPrt:    data.prt.refPrt,
       taillePrt: data.prt.taillePrt,
-      quantite: data.prt.quantite,
-      statutPrt: data.prt.statutPrt,
+      quantite:  prtQuantite,
     } : undefined,
+    prix:    { total: totalPrice },
+    paiement: { statut: paymentStatut },
   };
-
-  // Assigner fiche séparément pour éviter le conflit de types avec ExternalOrderFormat.fiche
-  payload.fiche = { coteLogoAr: data.fiche?.tailleDTFAr };
-
-  // Note interne (sans les infos PRT qui sont désormais dans extra)
-  if (data.note) {
-    (payload as any).notes = data.note;
-  }
-
-  return payload;
 }
 
 export async function POST(request: NextRequest) {
