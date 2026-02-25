@@ -725,15 +725,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
 
         {/* ══ VUE DEMANDE DE PRT — Tableau indépendant ════════════════════════ */}
         <div className={cn(viewTab !== 'demande_prt' && 'hidden')}>
-          <div className="flex flex-col gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold text-gray-900 uppercase tracking-tight mb-1">
-                Demande de PRT
-              </h1>
-              <p className="text-sm text-gray-500">Gérez vos demandes de demande d'impression</p>
-            </div>
-            <PRTManager items={allPrtItems} onItemsChange={setAllPrtItems} />
-          </div>
+          <PRTManager items={allPrtItems} onItemsChange={setAllPrtItems} />
         </div>
 
         {/* ══ VUE PRT — Demandes vers Loïc ═══════════════════════════════════ */}

@@ -38,6 +38,7 @@ const CELL_CLASS = "px-3 py-3 truncate";
 export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeletingIds, setIsDeletingIds] = useState<Set<string>>(new Set());
+  const [isAddingNew, setIsAddingNew] = useState(false);
 
   const sortedItems = useMemo(
     () => [...items].sort((a, b) => a.position - b.position),
@@ -96,6 +97,7 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
   }, [selectedIds, items, onItemsChange]);
 
   const handleAddNew = useCallback(async () => {
+    setIsAddingNew(true);
     try {
       const res = await fetch("/api/prt-requests", {
         method: "POST",
@@ -112,6 +114,8 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
       onItemsChange?.([data.item, ...items]);
     } catch (err) {
       console.error("Failed to create PRT:", err);
+    } finally {
+      setTimeout(() => setIsAddingNew(false), 300);
     }
   }, [items, onItemsChange]);
 
@@ -128,13 +132,20 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
         <h2 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
           Demandes PRT
         </h2>
-        <button
+        <motion.button
           onClick={handleAddNew}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+          whileTap={{ scale: 0.92 }}
+          animate={isAddingNew ? { backgroundColor: "#10b981" } : { backgroundColor: "transparent" }}
+          className={cn(
+            "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all",
+            isAddingNew
+              ? "text-white bg-green-500 shadow-md"
+              : "text-gray-600 hover:text-gray-900 hover:bg-gray-100 border border-gray-200"
+          )}
         >
           <Plus className="h-4 w-4" />
-          Ajouter
-        </button>
+          {isAddingNew ? "Ajouté ✓" : "Ajouter"}
+        </motion.button>
       </div>
 
       {/* Grid Header */}
