@@ -1,27 +1,34 @@
 "use client";
 
 /**
- * OrderCard (Vue Principale – Design Apple)
- * ─ Layout horizontal : QR Code (gauche, 100px) + Données alignées (droite)
- * ─ QR Code dans conteneur carré borduré (~100px, padding, bordure fine)
- * ─ Identité : NOM UPPERCASE font-bold + Prénom font-medium + Téléphone discret
- * ─ Logistique : Badge limite de rendu (coloré selon urgence) + Référence commande
- * ─ Visuels : miniatures Avant/Arrière avec badges + indicateur "DOS VIERGE"
- * ─ Note client : italique avec icône 📝 — toujours visible
- * ─ Facturation : T-shirt + Personnalisation + TOTAL coloré (vert payé / rouge impayé)
- * ─ Accordéon pour détails de production secondaires (PRT, collection, taille)
- * ─ Mode print optimisé A4
+ * OrderCard — Composant carte de commande atelier (Design Apple)
+ *
+ * VUE PRINCIPALE (toujours visible) :
+ *   Layout flex horizontal : QR Code 100px | Données alignées
+ *   - NOM uppercase bold + Prénom medium + Téléphone mono
+ *   - Badge deadline coloré + référence commande
+ *   - Miniatures visuels Avant/Arrière + indicateur DOS VIERGE
+ *   - Note client 📝 toujours visible
+ *   - Facturation compacte (T-shirt + Personnalisation + Total coloré)
+ *
+ * VUE DÉTAILLÉE (accordéon) :
+ *   bg-gray-50, p-6, space-y-6, 3 blocs distincts :
+ *   [1] INFOS ATELIER     — grid 2 cols + note encart + PRT
+ *   [2] LIVRAISON & CONTACT — dl sémantique (email, adresse, deadline)
+ *   [3] FACTURATION       — colonnes alignées droite + total coloré
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { ChevronDown, Shirt, User, CreditCard, MapPin } from "lucide-react";
+import { ChevronDown, Package, Users, CreditCard, MapPin } from "lucide-react";
 import { differenceInCalendarDays, format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import type { OldaExtraData } from "@/types/order";
 
-// ── Hooks utilitaires ──────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// HOOKS
+// ══════════════════════════════════════════════════════════════════════════════
 
 function useOrigin() {
   const [o, setO] = useState("");
@@ -40,17 +47,17 @@ function useLocalImages(orderId: string) {
       const stored = localStorage.getItem(key);
       if (stored) setImgs(JSON.parse(stored) as string[]);
     } catch {
-      // ignore
+      /* ignore */
     }
   }, [key]);
 
   const addImage = (dataUrl: string) => {
-    setImgs((prev) => {
+    setImgs((prev: string[]) => {
       const updated = [...prev, dataUrl].slice(0, 2);
       try {
         localStorage.setItem(key, JSON.stringify(updated));
       } catch {
-        // quota
+        /* quota */
       }
       return updated;
     });
@@ -59,10 +66,12 @@ function useLocalImages(orderId: string) {
   return { localImages: imgs, addImage };
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
 
 function fmtPrice(centimes: number | undefined): string {
-  if (!centimes) return "0,00 €";
+  if (centimes === undefined || centimes === null) return "—";
   return (centimes / 100).toLocaleString("fr-FR", {
     style: "currency",
     currency: "EUR",
@@ -80,86 +89,66 @@ type DeadlineState = "overdue" | "today" | "tomorrow" | "soon" | "normal";
 
 function getDeadlineInfo(
   limit: string | undefined | null
-): { label: string; state: DeadlineState } | null {
+): { label: string; state: DeadlineState; fullDate: string } | null {
   if (!limit) return null;
   try {
     const d = new Date(limit);
-    if (isNaN(d.getTime())) return { label: limit, state: "normal" };
-
+    if (isNaN(d.getTime())) return { label: limit, state: "normal", fullDate: limit };
     const diff = differenceInCalendarDays(d, new Date());
+    const fullDate = format(d, "EEEE d MMMM yyyy 'à' HH:mm", { locale: fr });
     if (diff < 0)
-      return { label: `En retard (${Math.abs(diff)}j)`, state: "overdue" };
-    if (diff === 0) return { label: "Aujourd'hui !", state: "today" };
-    if (diff === 1) return { label: "Demain", state: "tomorrow" };
+      return { label: `En retard de ${Math.abs(diff)} jour(s)`, state: "overdue", fullDate };
+    if (diff === 0) return { label: "Aujourd'hui !", state: "today", fullDate };
+    if (diff === 1) return { label: "Demain", state: "tomorrow", fullDate };
     if (diff <= 3)
       return {
-        label: `Dans ${diff}j · ${format(d, "d MMM", { locale: fr })}`,
+        label: `Dans ${diff} jours`,
         state: "soon",
+        fullDate,
       };
-    return {
-      label: `Dans ${diff}j · ${format(d, "d MMM", { locale: fr })}`,
-      state: "normal",
-    };
+    return { label: `Dans ${diff} jours`, state: "normal", fullDate };
   } catch {
-    return { label: limit, state: "normal" };
+    return { label: limit, state: "normal", fullDate: limit };
   }
 }
 
-// ── Sous-composants ────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// SUB-COMPONENTS (Vue principale)
+// ══════════════════════════════════════════════════════════════════════════════
 
-function DeadlineBadge({
-  label,
-  state,
-}: {
-  label: string;
-  state: DeadlineState;
-}) {
+function DeadlineBadge({ label, state }: { label: string; state: DeadlineState }) {
+  const base = "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium leading-none border";
+  const styles: Record<DeadlineState, string> = {
+    overdue:  "bg-red-50 text-red-600 border-red-200",
+    today:    "bg-orange-50 text-orange-600 border-orange-200",
+    tomorrow: "bg-amber-50 text-amber-600 border-amber-200",
+    soon:     "bg-blue-50 text-blue-600 border-blue-200",
+    normal:   "bg-gray-50 text-gray-500 border-gray-200",
+  };
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium leading-none",
-        state === "overdue" &&
-          "bg-red-50 text-red-600 border border-red-200",
-        state === "today" &&
-          "bg-orange-50 text-orange-600 border border-orange-200",
-        state === "tomorrow" &&
-          "bg-amber-50 text-amber-600 border border-amber-200",
-        state === "soon" &&
-          "bg-blue-50 text-blue-600 border border-blue-200",
-        state === "normal" &&
-          "bg-gray-50 text-gray-500 border border-gray-200"
-      )}
-    >
-      {state === "overdue" && <span>⚠️</span>}
-      {state === "today" && <span className="block w-1.5 h-1.5 rounded-full bg-orange-500" />}
+    <span className={`${base} ${styles[state]}`}>
+      {state === "overdue"  && <span>⚠️</span>}
+      {state === "today"    && <span className="block w-1.5 h-1.5 rounded-full bg-orange-500" />}
       {label}
     </span>
   );
 }
 
-function VisualThumbnail({
-  src,
-  label,
-  isDtf,
-}: {
-  src: string;
-  label: string;
-  isDtf: boolean;
-}) {
+function VisualThumbnail({ src, label, isDtf }: { src: string; label: string; isDtf: boolean }) {
   return (
     <div className="relative pt-3">
-      <span className="absolute top-0 left-1 z-10 bg-[#1d1d1f]/75 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider leading-none">
+      <span className="absolute top-0 left-1 z-10 bg-black/70 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider leading-none">
         {label}
       </span>
       {isDtf ? (
-        <div className="w-16 h-16 rounded-xl border border-[#E5E5E5] bg-gray-50 flex items-center justify-center p-1.5 text-[8px] font-mono text-gray-600 text-center overflow-hidden leading-tight">
+        <div className="w-16 h-16 rounded-xl border border-gray-200 bg-gray-50 flex items-center justify-center p-1.5 text-[8px] font-mono text-gray-600 text-center overflow-hidden leading-tight">
           {src}
         </div>
       ) : (
         <img
           src={src}
           alt={label}
-          className="w-16 h-16 rounded-xl border border-[#E5E5E5] object-cover"
+          className="w-16 h-16 rounded-xl border border-gray-200 object-cover"
         />
       )}
     </div>
@@ -169,94 +158,164 @@ function VisualThumbnail({
 function EmptyBackIndicator() {
   return (
     <div className="relative pt-3">
-      <span className="absolute top-0 left-1 z-10 bg-[#1d1d1f]/75 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider leading-none">
+      <span className="absolute top-0 left-1 z-10 bg-black/70 text-white text-[9px] font-semibold px-1.5 py-0.5 rounded-full uppercase tracking-wider leading-none">
         Arrière
       </span>
       <div className="w-16 h-16 rounded-xl border border-dashed border-gray-300 bg-gray-50/60 flex flex-col items-center justify-center gap-0.5">
-        <span className="text-gray-300 text-[9px] font-semibold uppercase tracking-wider leading-tight">
-          Dos
-        </span>
-        <span className="text-gray-300 text-[9px] font-semibold uppercase tracking-wider leading-tight">
-          vierge
-        </span>
+        <span className="text-gray-300 text-[9px] font-semibold uppercase tracking-wider leading-tight">Dos</span>
+        <span className="text-gray-300 text-[9px] font-semibold uppercase tracking-wider leading-tight">vierge</span>
       </div>
     </div>
   );
 }
 
-/** Ligne label / valeur standard du panneau détaillé */
-function DetailRow({ label, value }: { label: string; value: string }) {
+// ══════════════════════════════════════════════════════════════════════════════
+// SUB-COMPONENTS (Accordéon)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/** Titre de section de l'accordéon */
+function SectionHeading({
+  icon,
+  label,
+}: {
+  icon: ReactNode;
+  label: string;
+}) {
   return (
-    <div className="flex items-start gap-3">
-      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 w-28 shrink-0 pt-[3px] leading-tight">
+    <div className="flex items-center gap-2 pb-3 border-b border-gray-200">
+      <span className="text-gray-400">{icon}</span>
+      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
         {label}
       </span>
-      <span className="text-sm font-medium text-gray-900 leading-snug break-words min-w-0">
+    </div>
+  );
+}
+
+/** Paire label/valeur pour la grille produit */
+function InfoCell({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+        {label}
+      </span>
+      <span className={cn("text-sm text-gray-900", bold ? "font-bold" : "font-medium")}>
         {value}
       </span>
     </div>
   );
 }
 
-/** Ligne montant pour le bloc financier */
-function FinancialRow({ label, value }: { label: string; value: string }) {
+/** Entrée dl (description list) pour le bloc logistique */
+function DlEntry({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-xs text-gray-500">{label}</span>
-      <span className="text-sm font-medium text-gray-800 font-mono">{value}</span>
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+        {label}
+      </dt>
+      <dd className="text-sm font-medium text-gray-900">
+        {children}
+      </dd>
     </div>
   );
 }
 
-// ── Props ──────────────────────────────────────────────────────────────────────
+/** Ligne de prix alignée */
+function PriceRow({
+  label,
+  value,
+  total,
+  paid,
+}: {
+  label: string;
+  value: string;
+  total?: boolean;
+  paid?: boolean;
+}) {
+  if (total) {
+    return (
+      <div className="flex items-center justify-between pt-3 mt-1 border-t border-gray-200">
+        <span className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+          Total
+        </span>
+        <span
+          className={cn(
+            "text-base font-bold font-mono",
+            paid ? "text-green-600" : "text-red-500"
+          )}
+        >
+          {value}
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+        {label}
+      </span>
+      <span className="text-sm font-medium text-gray-900 font-mono">{value}</span>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PROPS
+// ══════════════════════════════════════════════════════════════════════════════
 
 export interface OrderCardProps {
   data: OldaExtraData;
   orderId?: string;
   /** Email du client (depuis Order.customerEmail) */
   customerEmail?: string;
-  /** Adresse de livraison formatée (chaîne ou objet sérialisé) */
+  /** Adresse de livraison formatée (peut être multiline avec \n) */
   customerAddress?: string;
+  /** Position du logo sur le vêtement */
+  positionLogo?: string;
   onDelete?: () => void;
   onEdit?: () => void;
 }
 
-// ── Composant Principal ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// COMPOSANT PRINCIPAL
+// ══════════════════════════════════════════════════════════════════════════════
 
 export function OrderCard({
   data,
   orderId = "unknown",
   customerEmail,
   customerAddress,
+  positionLogo,
 }: OrderCardProps) {
   const origin = useOrigin();
   const { localImages } = useLocalImages(orderId);
   const [isOpen, setIsOpen] = useState(false);
 
-  // ── Extraction des données ──
-  const commande = data.commande || "";
-  const prenom = data.prenom || "";
-  const nom = data.nom || "";
-  const telephone = data.telephone || "";
-  const deadline = getDeadlineInfo(data.limit);
-  const reference = data.reference;
+  // ── Extraction des données ────────────────────────────────────────────────
+  const commande   = data.commande  ?? "";
+  const prenom     = data.prenom    ?? "";
+  const nom        = data.nom       ?? "";
+  const telephone  = data.telephone ?? "";
+  const reference  = data.reference;
+  const deadline   = getDeadlineInfo(data.limit);
 
   // Visuels : priorité images locales, puis fiche
-  const visuelAvant = localImages[0] || data.fiche?.visuelAvant;
-  const visuelArriere = localImages[1] || data.fiche?.visuelArriere;
+  const visuelAvant   = localImages[0] ?? data.fiche?.visuelAvant;
+  const visuelArriere = localImages[1] ?? data.fiche?.visuelArriere;
 
-  // Infos produit (accordéon)
+  // Infos produit
   const typeProduit = data.fiche?.typeProduit;
-  const couleur = data.fiche?.couleur;
-  const tailleDTF = data.fiche?.tailleDTFAr;
+  const couleur     = data.fiche?.couleur;
+  const tailleDTF   = data.fiche?.tailleDTFAr;
 
-  // Détails secondaires (accordéon)
+  // Détails secondaires
   const collection = data.collection;
-  const taille = data.taille;
-  const note = data.note;
-  const refPrt = data.prt?.refPrt;
+  const taille     = data.taille;
+  const note       = data.note;
+
+  // PRT
+  const refPrt    = data.prt?.refPrt;
   const taillePrt = data.prt?.taillePrt;
-  const quantite = data.prt?.quantite;
+  const quantite  = data.prt?.quantite;
 
   // Paiement & prix
   const isPaid =
@@ -267,21 +326,18 @@ export function OrderCard({
     prix?.personnalisation !== undefined ||
     prix?.total !== undefined;
 
-  // QR Code URL
+  // QR Code
   const qrValue =
     origin && commande
       ? `${origin}/dashboard/orders/${orderId}`
       : commande || "olda";
 
-  const hasAccordionContent = !!(
-    typeProduit || couleur || tailleDTF ||
-    collection || taille || note ||
-    refPrt || taillePrt || quantite !== undefined ||
-    customerEmail || customerAddress ||
-    hasBilling
-  );
+  // Visibilité accordéon
+  const hasBlock1 = !!(typeProduit || couleur || tailleDTF || collection || taille || note || refPrt || positionLogo);
+  const hasBlock2 = !!(customerEmail || customerAddress || telephone || data.limit);
+  const hasAccordion = hasBlock1 || hasBlock2 || hasBilling;
 
-  // ── Rendu ──────────────────────────────────────────────────────────────────
+  // ── Rendu ────────────────────────────────────────────────────────────────
 
   return (
     <>
@@ -291,80 +347,60 @@ export function OrderCard({
           body * { visibility: hidden !important; }
           .olda-card-print, .olda-card-print * { visibility: visible !important; }
           .olda-card-print {
-            position: fixed !important;
-            inset: 0 !important;
-            padding: 1cm !important;
-            background: white !important;
-            width: 21cm !important;
-            height: 29.7cm !important;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: center !important;
-            justify-content: center !important;
+            position: fixed !important; inset: 0 !important;
+            padding: 1cm !important; background: white !important;
+            width: 21cm !important; height: 29.7cm !important;
+            display: flex !important; flex-direction: column !important;
+            align-items: center !important; justify-content: center !important;
           }
-          .olda-card-print img {
-            width: 50% !important;
-            height: auto !important;
-            margin: 1cm auto !important;
-          }
+          .olda-card-print img { width: 50% !important; height: auto !important; margin: 1cm auto !important; }
         }
       `}</style>
 
-      {/* ══ MODE PRINT ══════════════════════════════════════════════════════════ */}
+      {/* ══ MODE PRINT ══════════════════════════════════════════════════════ */}
       <div className="olda-card-print hidden print:block">
         <div className="text-center space-y-4">
-          <div>
-            <h1 className="text-2xl font-bold">
-              {prenom} {nom}
-            </h1>
-            {telephone && <p className="text-sm text-gray-600">{telephone}</p>}
-          </div>
+          <h1 className="text-2xl font-bold">{prenom} {nom}</h1>
+          {telephone && <p className="text-sm text-gray-600">{telephone}</p>}
           {visuelAvant && (
             <div>
               <p className="text-xs font-semibold text-gray-400 mb-2">AVANT</p>
-              {isDtfCode(visuelAvant) ? (
-                <div className="border border-gray-300 p-2 rounded text-sm font-mono">
-                  {visuelAvant}
-                </div>
-              ) : (
-                <img src={visuelAvant} alt="Avant" className="max-h-40" />
-              )}
+              {isDtfCode(visuelAvant)
+                ? <div className="border border-gray-300 p-2 rounded text-sm font-mono">{visuelAvant}</div>
+                : <img src={visuelAvant} alt="Avant" className="max-h-40" />
+              }
             </div>
           )}
           {visuelArriere && (
             <div>
               <p className="text-xs font-semibold text-gray-400 mb-2">ARRIÈRE</p>
-              {isDtfCode(visuelArriere) ? (
-                <div className="border border-gray-300 p-2 rounded text-sm font-mono">
-                  {visuelArriere}
-                </div>
-              ) : (
-                <img src={visuelArriere} alt="Arrière" className="max-h-40" />
-              )}
+              {isDtfCode(visuelArriere)
+                ? <div className="border border-gray-300 p-2 rounded text-sm font-mono">{visuelArriere}</div>
+                : <img src={visuelArriere} alt="Arrière" className="max-h-40" />
+              }
             </div>
           )}
         </div>
       </div>
 
-      {/* ══ MODE ÉCRAN ══════════════════════════════════════════════════════════ */}
+      {/* ══ MODE ÉCRAN ══════════════════════════════════════════════════════ */}
       <div className="print:hidden">
 
         {/* ── Carte principale ── */}
         <div
           className={cn(
-            "rounded-2xl border border-[#E5E5E5] bg-white",
-            "shadow-sm hover:shadow-md",
-            "transition-shadow duration-200",
-            "p-4"
+            "rounded-2xl border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200",
+            "p-4",
+            isOpen && "rounded-b-none border-b-0"
           )}
         >
           {/* Layout flex horizontal : QR Code | Données */}
           <div className="flex gap-4 items-start">
 
-            {/* ▌BLOC GAUCHE : QR Code ▌ */}
+            {/* ▌GAUCHE : QR Code ▌ */}
             {commande && (
               <div className="shrink-0">
-                <div className="w-[108px] h-[108px] border border-[#E5E5E5] rounded-xl p-1.5 flex items-center justify-center bg-white">
+                <div className="w-[108px] h-[108px] border border-gray-200 rounded-xl p-1.5 flex items-center justify-center bg-white">
                   <QRCodeSVG
                     value={qrValue}
                     size={92}
@@ -376,73 +412,51 @@ export function OrderCard({
               </div>
             )}
 
-            {/* ▌BLOC DROITE : Données alignées ▌ */}
+            {/* ▌DROITE : Données ▌ */}
             <div className="flex-1 flex flex-col gap-2.5 min-w-0">
 
-              {/* 1. Identité & Contact */}
+              {/* 1. Identité */}
               <div>
-                {(nom || prenom) && (
-                  <>
-                    <p className="text-sm font-bold uppercase tracking-wide leading-tight text-[#1d1d1f] truncate">
-                      {nom}
-                    </p>
-                    {prenom && (
-                      <p className="text-sm font-medium text-[#1d1d1f]/75 leading-tight truncate">
-                        {prenom}
-                      </p>
-                    )}
-                  </>
+                {nom && (
+                  <p className="text-sm font-bold uppercase tracking-wide leading-tight text-gray-900 truncate">
+                    {nom}
+                  </p>
+                )}
+                {prenom && (
+                  <p className="text-sm font-medium text-gray-600 leading-tight truncate">
+                    {prenom}
+                  </p>
                 )}
                 {telephone && (
-                  <p className="text-xs text-gray-400 font-mono mt-0.5">
-                    {telephone}
-                  </p>
+                  <p className="text-xs text-gray-400 font-mono mt-0.5">{telephone}</p>
                 )}
               </div>
 
-              {/* 2. Logistique : Deadline + Référence */}
+              {/* 2. Deadline + Référence */}
               {(deadline || reference) && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   {deadline && (
-                    <DeadlineBadge
-                      label={deadline.label}
-                      state={deadline.state}
-                    />
+                    <DeadlineBadge label={deadline.label} state={deadline.state} />
                   )}
                   {reference && (
-                    <span className="text-[11px] text-gray-400 font-mono">
-                      {reference}
-                    </span>
+                    <span className="text-[11px] text-gray-400 font-mono">{reference}</span>
                   )}
                 </div>
               )}
 
-              {/* 3. Visuels : miniatures Avant / Arrière */}
+              {/* 3. Visuels */}
               {visuelAvant && (
                 <div className="flex items-start gap-2.5">
-                  <VisualThumbnail
-                    src={visuelAvant}
-                    label="Avant"
-                    isDtf={isDtfCode(visuelAvant)}
-                  />
-                  {visuelArriere ? (
-                    <VisualThumbnail
-                      src={visuelArriere}
-                      label="Arrière"
-                      isDtf={isDtfCode(visuelArriere)}
-                    />
-                  ) : (
-                    <EmptyBackIndicator />
-                  )}
+                  <VisualThumbnail src={visuelAvant} label="Avant" isDtf={isDtfCode(visuelAvant)} />
+                  {visuelArriere
+                    ? <VisualThumbnail src={visuelArriere} label="Arrière" isDtf={isDtfCode(visuelArriere)} />
+                    : <EmptyBackIndicator />
+                  }
                 </div>
               )}
               {!visuelAvant && visuelArriere && (
                 <div className="flex items-start gap-2.5">
-                  <VisualThumbnail
-                    src={visuelArriere}
-                    label="Arrière"
-                    isDtf={isDtfCode(visuelArriere)}
-                  />
+                  <VisualThumbnail src={visuelArriere} label="Arrière" isDtf={isDtfCode(visuelArriere)} />
                 </div>
               )}
 
@@ -450,38 +464,31 @@ export function OrderCard({
               {note && (
                 <div className="flex items-start gap-1.5">
                   <span className="text-xs mt-px select-none">📝</span>
-                  <p className="text-xs italic text-gray-500 leading-snug break-words min-w-0">
-                    {note}
-                  </p>
+                  <p className="text-xs italic text-gray-500 leading-snug break-words min-w-0">{note}</p>
                 </div>
               )}
 
-              {/* 5. Facturation */}
+              {/* 5. Facturation compacte */}
               {hasBilling && (
-                <div className="border-t border-[#F0F0F0] pt-2 space-y-1">
+                <div className="border-t border-gray-100 pt-2 space-y-1">
                   {prix?.tshirt !== undefined && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>T-shirt</span>
-                      <span className="font-mono">{fmtPrice(prix.tshirt)}</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">T-shirt</span>
+                      <span className="text-xs font-mono text-gray-700">{fmtPrice(prix.tshirt)}</span>
                     </div>
                   )}
                   {prix?.personnalisation !== undefined && (
-                    <div className="flex items-center justify-between text-xs text-gray-500">
-                      <span>Personnalisation</span>
-                      <span className="font-mono">
-                        {fmtPrice(prix.personnalisation)}
-                      </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Personnalisation</span>
+                      <span className="text-xs font-mono text-gray-700">{fmtPrice(prix.personnalisation)}</span>
                     </div>
                   )}
                   {prix?.total !== undefined && (
-                    <div
-                      className={cn(
-                        "flex items-center justify-between text-sm font-bold",
-                        isPaid ? "text-green-600" : "text-red-500"
-                      )}
-                    >
-                      <span>Total</span>
-                      <span className="font-mono">{fmtPrice(prix.total)}</span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-gray-600">Total</span>
+                      <span className={cn("text-sm font-bold font-mono", isPaid ? "text-green-600" : "text-red-500")}>
+                        {fmtPrice(prix.total)}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -490,64 +497,71 @@ export function OrderCard({
           </div>
 
           {/* Bouton accordéon */}
-          {hasAccordionContent && (
-            <div className="flex justify-center mt-3">
+          {hasAccordion && (
+            <div className="flex justify-center mt-3 pt-2 border-t border-gray-100">
               <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors py-0.5"
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors py-0.5 px-2 rounded-full hover:bg-gray-50"
                 aria-expanded={isOpen}
-                aria-label="Voir les détails de production"
               >
-                <span>{isOpen ? "Réduire" : "Détails production"}</span>
+                <span className="font-medium">{isOpen ? "Réduire" : "Détails production"}</span>
                 <ChevronDown
                   size={13}
-                  className={cn(
-                    "transition-transform duration-200",
-                    isOpen && "rotate-180"
-                  )}
+                  className={cn("transition-transform duration-200", isOpen && "rotate-180")}
                 />
               </button>
             </div>
           )}
         </div>
 
-        {/* ══ ACCORDÉON : Panneau de détails ══════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════════════════════════
+            ACCORDÉON — PANNEAU DÉTAILLÉ
+        ══════════════════════════════════════════════════════════════════ */}
         {isOpen && (
-          <div
-            className={cn(
-              "rounded-b-2xl border border-t-0 border-[#E5E5E5] bg-slate-50/70",
-              "px-4 pb-5 pt-4 space-y-4"
-            )}
-          >
+          <div className="rounded-b-2xl border border-t-0 border-gray-200 bg-gray-50 p-6 space-y-6">
 
-            {/* ── BLOC 1 : Produit & Personnalisation ───────────────────────── */}
-            {(typeProduit || couleur || tailleDTF || collection || taille || note || refPrt) && (
-              <section className="space-y-3">
+            {/* ──────────────────────────────────────────────────────────────
+                BLOC 1 — INFOS ATELIER
+                Grille 2 colonnes + note encart + PRT encart
+            ────────────────────────────────────────────────────────────── */}
+            {hasBlock1 && (
+              <section>
+                <SectionHeading
+                  icon={<Package size={14} />}
+                  label="Infos Atelier"
+                />
 
-                {/* En-tête du bloc */}
-                <div className="flex items-center gap-1.5">
-                  <Shirt size={13} className="text-gray-400 shrink-0" />
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-                    Produit &amp; Personnalisation
-                  </span>
-                </div>
-
-                {/* Grille label / valeur */}
-                <div className="space-y-2 pl-0.5">
-                  {typeProduit && <DetailRow label="Famille" value={typeProduit} />}
-                  {couleur && <DetailRow label="Couleur" value={couleur} />}
-                  {tailleDTF && <DetailRow label="Dimensions DTF" value={tailleDTF} />}
-                  {collection && <DetailRow label="Collection" value={collection} />}
-                  {taille && <DetailRow label="Taille" value={taille} />}
-                </div>
+                {/* Grille label/valeur — 2 colonnes */}
+                {(typeProduit || couleur || tailleDTF || collection || taille || positionLogo) && (
+                  <div className="grid grid-cols-1 gap-4 mt-4 sm:grid-cols-2">
+                    {typeProduit && (
+                      <InfoCell label="Famille" value={typeProduit} />
+                    )}
+                    {couleur && (
+                      <InfoCell label="Couleur" value={couleur} />
+                    )}
+                    {tailleDTF && (
+                      <InfoCell label="Taille DTF" value={tailleDTF} bold />
+                    )}
+                    {positionLogo && (
+                      <InfoCell label="Position Logo" value={positionLogo} />
+                    )}
+                    {collection && (
+                      <InfoCell label="Collection" value={collection} />
+                    )}
+                    {taille && (
+                      <InfoCell label="Taille" value={taille} />
+                    )}
+                  </div>
+                )}
 
                 {/* Note client — encart dédié */}
                 {note && (
-                  <div className="rounded-xl border border-[#E8E8E8] bg-white px-3 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-1.5">
+                  <div className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                       Note / Message client
                     </p>
-                    <p className="text-sm italic text-gray-700 leading-snug break-words">
+                    <p className="text-sm font-medium text-gray-800 italic leading-relaxed break-words">
                       {note}
                     </p>
                   </div>
@@ -555,15 +569,19 @@ export function OrderCard({
 
                 {/* PRT / Impression — encart dédié */}
                 {(refPrt || taillePrt || quantite !== undefined) && (
-                  <div className="rounded-xl border border-[#E8E8E8] bg-white px-3 py-2.5">
-                    <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">
+                  <div className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                       Impression (PRT)
                     </p>
-                    <div className="space-y-2">
-                      {refPrt && <DetailRow label="Référence" value={refPrt} />}
-                      {taillePrt && <DetailRow label="Taille" value={taillePrt} />}
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {refPrt && (
+                        <InfoCell label="Référence" value={refPrt} />
+                      )}
+                      {taillePrt && (
+                        <InfoCell label="Taille impression" value={taillePrt} />
+                      )}
                       {quantite !== undefined && (
-                        <DetailRow label="Quantité" value={String(quantite)} />
+                        <InfoCell label="Quantité" value={String(quantite)} bold />
                       )}
                     </div>
                   </div>
@@ -571,112 +589,92 @@ export function OrderCard({
               </section>
             )}
 
-            {/* Séparateur */}
-            {(typeProduit || couleur || tailleDTF || collection || taille || note || refPrt) &&
-              (customerEmail || customerAddress || telephone || data.limit) && (
-                <div className="h-px bg-[#E8E8E8]" />
-            )}
+            {/* ──────────────────────────────────────────────────────────────
+                BLOC 2 — LIVRAISON & CONTACT
+                dl sémantique : email, adresse, deadline
+            ────────────────────────────────────────────────────────────── */}
+            {hasBlock2 && (
+              <section>
+                <SectionHeading
+                  icon={<Users size={14} />}
+                  label="Livraison & Contact"
+                />
 
-            {/* ── BLOC 2 : Client & Logistique ──────────────────────────────── */}
-            {(customerEmail || customerAddress || telephone || data.limit) && (
-              <section className="space-y-3">
-
-                <div className="flex items-center gap-1.5">
-                  <User size={13} className="text-gray-400 shrink-0" />
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-                    Client &amp; Logistique
-                  </span>
-                </div>
-
-                <div className="space-y-2 pl-0.5">
-                  {telephone && <DetailRow label="Téléphone" value={telephone} />}
-                  {customerEmail && <DetailRow label="Email" value={customerEmail} />}
-
-                  {/* Deadline complète avec badge coloré */}
-                  {deadline && (
-                    <div className="flex items-start gap-3">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 w-28 shrink-0 pt-[3px] leading-tight">
-                        Deadline
-                      </span>
-                      <DeadlineBadge label={deadline.label} state={deadline.state} />
-                    </div>
+                <dl className="mt-4 space-y-3">
+                  {telephone && (
+                    <DlEntry label="Téléphone">
+                      {telephone}
+                    </DlEntry>
                   )}
 
-                  {/* Adresse complète — multiline */}
+                  {customerEmail && (
+                    <DlEntry label="Email">
+                      {customerEmail}
+                    </DlEntry>
+                  )}
+
                   {customerAddress && (
-                    <div className="flex items-start gap-3">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 w-28 shrink-0 pt-[3px] leading-tight">
-                        <MapPin size={11} className="inline -mt-0.5 mr-0.5" />
-                        Adresse
+                    <DlEntry label="Adresse">
+                      <span className="flex items-start gap-1">
+                        <MapPin size={13} className="text-gray-400 mt-0.5 shrink-0" />
+                        <span className="whitespace-pre-line">{customerAddress}</span>
                       </span>
-                      <p className="text-sm font-medium text-gray-900 leading-snug whitespace-pre-line break-words min-w-0">
-                        {customerAddress}
-                      </p>
-                    </div>
+                    </DlEntry>
                   )}
-                </div>
+
+                  {deadline && (
+                    <DlEntry label="Date limite">
+                      <div className="flex flex-col gap-1">
+                        <DeadlineBadge label={deadline.label} state={deadline.state} />
+                        <span className="text-xs text-gray-400 mt-0.5">{deadline.fullDate}</span>
+                      </div>
+                    </DlEntry>
+                  )}
+                </dl>
               </section>
             )}
 
-            {/* Séparateur */}
-            {hasBilling &&
-              (typeProduit || couleur || tailleDTF || collection || taille || note ||
-               refPrt || customerEmail || customerAddress || telephone || data.limit) && (
-                <div className="h-px bg-[#E8E8E8]" />
-            )}
-
-            {/* ── BLOC 3 : Détail Financier ──────────────────────────────────── */}
+            {/* ──────────────────────────────────────────────────────────────
+                BLOC 3 — FACTURATION
+                Colonnes alignées droite + total coloré + statut paiement
+            ────────────────────────────────────────────────────────────── */}
             {hasBilling && (
-              <section className="space-y-3">
+              <section>
+                <SectionHeading
+                  icon={<CreditCard size={14} />}
+                  label="Facturation"
+                />
 
-                <div className="flex items-center gap-1.5">
-                  <CreditCard size={13} className="text-gray-400 shrink-0" />
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-                    Détail Financier
-                  </span>
-                </div>
-
-                <div className="rounded-xl border border-[#E8E8E8] bg-white px-3 py-2.5 space-y-2">
+                <div className="mt-4 rounded-xl border border-gray-200 bg-white px-4 py-3 space-y-2">
                   {prix?.tshirt !== undefined && (
-                    <FinancialRow label="T-shirt nu" value={fmtPrice(prix.tshirt)} />
+                    <PriceRow label="T-shirt nu" value={fmtPrice(prix.tshirt)} />
                   )}
                   {prix?.personnalisation !== undefined && (
-                    <FinancialRow
-                      label="Personnalisation (DTF / Pressage)"
-                      value={fmtPrice(prix.personnalisation)}
+                    <PriceRow label="Personnalisation (DTF / Pressage)" value={fmtPrice(prix.personnalisation)} />
+                  )}
+                  {prix?.total !== undefined && (
+                    <PriceRow
+                      label="Total"
+                      value={fmtPrice(prix.total)}
+                      total
+                      paid={isPaid}
                     />
                   )}
 
-                  {/* Ligne totale avec statut paiement */}
+                  {/* Statut paiement */}
                   {prix?.total !== undefined && (
-                    <>
-                      <div className="h-px bg-[#F0F0F0]" />
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-                          Total
-                        </span>
-                        <span
-                          className={cn(
-                            "text-sm font-bold font-mono",
-                            isPaid ? "text-green-600" : "text-red-500"
-                          )}
-                        >
-                          {fmtPrice(prix.total)}
-                        </span>
-                      </div>
-                      <div className="flex justify-end">
-                        <span
-                          className={cn(
-                            "text-[10px] font-semibold px-2 py-0.5 rounded-full",
-                            isPaid
-                              ? "bg-green-50 text-green-600 border border-green-200"
-                              : "bg-red-50 text-red-500 border border-red-200"
-                          )}
-                        >
-                          {isPaid ? "✓ Payé" : "✗ Non payé"}
-                        </span>
-                      </div>
-                    </>
+                    <div className="flex justify-end pt-1">
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 text-[10px] font-semibold px-2.5 py-1 rounded-full border",
+                          isPaid
+                            ? "bg-green-50 text-green-600 border-green-200"
+                            : "bg-red-50 text-red-500 border-red-200"
+                        )}
+                      >
+                        {isPaid ? "✓ Commande payée" : "✗ Paiement en attente"}
+                      </span>
+                    </div>
                   )}
                 </div>
               </section>
@@ -684,6 +682,7 @@ export function OrderCard({
 
           </div>
         )}
+        {/* ═══════════════════════════════════════════════════════════════ */}
       </div>
     </>
   );
