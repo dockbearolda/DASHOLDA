@@ -17,7 +17,7 @@
 
 import { useState, useCallback, useMemo, useRef } from "react";
 import { motion, Reorder, AnimatePresence } from "framer-motion";
-import { Trash2, Plus, Check, X, ChevronDown } from "lucide-react";
+import { Trash2, Plus, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -59,34 +59,6 @@ interface PlanningTableProps {
   items: PlanningItem[];
   onItemsChange?: (items: PlanningItem[]) => void;
 }
-
-// ── Draft (ligne temporaire locale, non encore en BDD) ─────────────────────────
-
-interface Draft {
-  priority: "BASSE" | "MOYENNE" | "HAUTE";
-  clientName: string;
-  quantity: number;
-  designation: string;
-  note: string;
-  unitPrice: number;
-  deadline: string;
-  status: PlanningStatus;
-  responsible: string;
-  color: string;
-}
-
-const DEFAULT_DRAFT: Draft = {
-  priority:    "MOYENNE",
-  clientName:  "",
-  quantity:    1,
-  designation: "",
-  note:        "",
-  unitPrice:   0,
-  deadline:    "",
-  status:      "A_DEVISER",
-  responsible: "",
-  color:       "",
-};
 
 // ── Constantes ─────────────────────────────────────────────────────────────────
 
@@ -173,12 +145,6 @@ const CELL_INPUT =
   "w-full h-8 px-2.5 text-[13px] text-slate-900 bg-white rounded-lg " +
   "border border-blue-300 ring-2 ring-blue-100/70 shadow-sm focus:outline-none";
 
-const DRAFT_INPUT =
-  "w-full h-8 px-2.5 text-[13px] text-slate-900 bg-white rounded-lg " +
-  "border border-blue-200/50 shadow-sm focus:outline-none " +
-  "focus:border-blue-300 focus:ring-2 focus:ring-blue-100/60 " +
-  "placeholder:text-slate-300";
-
 const EMPTY_TEXT = "text-slate-300 italic font-normal";
 const CELL_WRAP  = "h-full flex items-center px-1.5";
 
@@ -234,13 +200,10 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (c: string)
 
 export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
   const [editing,     setEditing]     = useState<string | null>(null);
-  const [draft,       setDraft]       = useState<Draft | null>(null);
-  const [draftKey,    setDraftKey]    = useState(0);
+  const [addingRow,   setAddingRow]   = useState(false);
   const [savingIds,   setSavingIds]   = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
-  const [savingDraft, setSavingDraft] = useState(false);
-  const preEdit        = useRef<unknown>(null);
-  const draftClientRef = useRef<HTMLInputElement>(null);
+  const preEdit = useRef<unknown>(null);
 
   const sorted = useMemo(
     () =>
@@ -318,50 +281,32 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
     [updateItem]
   );
 
-  // ── Draft row ─────────────────────────────────────────────────────────────────
+  // ── Ajouter une ligne (création instantanée en DB) ───────────────────────────
 
-  const changeDraft = useCallback(
-    (field: keyof Draft, value: unknown) => {
-      setDraft((p) => (p ? { ...p, [field]: value } : p));
-    },
-    []
-  );
-
-  const saveDraft = useCallback(async () => {
-    if (!draft || savingDraft) return;
-    setSavingDraft(true);
+  const addRow = useCallback(async () => {
+    if (addingRow) return;
+    setAddingRow(true);
     try {
-      const res  = await fetch("/api/planning", {
+      const res = await fetch("/api/planning", {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ ...draft, deadline: draft.deadline || null }),
+        body:    JSON.stringify({
+          priority: "MOYENNE", clientName: "", quantity: 1,
+          designation: "", note: "", unitPrice: 0,
+          deadline: null, status: "A_DEVISER", responsible: "", color: "",
+        }),
       });
       const { item } = await res.json();
       if (item) {
         onItemsChange?.([item, ...items]);
-        // Nouvelle ligne vide — on incrémente draftKey pour forcer le remontage
-        // du draft row → autoFocus se redéclenche naturellement sur le champ Client
-        setDraft({ ...DEFAULT_DRAFT });
-        setDraftKey((k) => k + 1);
-      } else {
-        console.error("Draft save: API returned no item");
+        setEditing(`${item.id}:clientName`);
       }
     } catch (e) {
-      console.error("Failed to save draft row:", e);
+      console.error("Failed to add row:", e);
     } finally {
-      setSavingDraft(false);
+      setAddingRow(false);
     }
-  }, [draft, savingDraft, items, onItemsChange]);
-
-  // Ouvre un nouveau draft — si un draft existe déjà, le sauvegarde d'abord
-  const showDraft = useCallback(() => {
-    if (draft) {
-      saveDraft();
-    } else {
-      setDraft({ ...DEFAULT_DRAFT });
-      setDraftKey((k) => k + 1);
-    }
-  }, [draft, saveDraft]);
+  }, [addingRow, items, onItemsChange]);
 
   // ── Delete ────────────────────────────────────────────────────────────────────
 
@@ -428,17 +373,20 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
         </div>
 
         <button
-          onClick={showDraft}
-          disabled={savingDraft}
+          onClick={addRow}
+          disabled={addingRow}
           className={cn(
             "flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold shadow-sm",
             "transition-all duration-200 active:scale-[0.97] select-none",
-            savingDraft
+            addingRow
               ? "bg-slate-100 text-slate-400 cursor-default"
               : "bg-blue-500 text-white hover:bg-blue-600 shadow-blue-200"
           )}
         >
-          <Plus className="h-3.5 w-3.5 shrink-0" />
+          {addingRow
+            ? <div className="h-3.5 w-3.5 rounded-full border-2 border-slate-300 border-t-slate-500 animate-spin" />
+            : <Plus className="h-3.5 w-3.5 shrink-0" />
+          }
           Nouvelle ligne
         </button>
       </div>
@@ -463,203 +411,9 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
             ))}
           </div>
 
-          {/* ── Draft row ─────────────────────────────────────────────────────── */}
-          <AnimatePresence>
-            {draft && (
-              <motion.div
-                key={`draft-${draftKey}`}
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.12, ease: "easeOut" }}
-              >
-                <div className={cn("grid h-[44px] border-b-2 border-blue-200/60 bg-blue-50/25", GRID)}>
-
-                  {/* Priorité */}
-                  <div className={CELL_WRAP}>
-                    <button
-                      onClick={() => changeDraft("priority", nextPriority(draft.priority))}
-                      className={cn(
-                        "px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all",
-                        PRIORITY_STYLE[draft.priority]
-                      )}
-                    >
-                      {PRIORITY_LABEL[draft.priority]}
-                    </button>
-                  </div>
-
-                  {/* Client */}
-                  <div className={CELL_WRAP}>
-                    <input
-                      ref={draftClientRef}
-                      type="text"
-                      value={draft.clientName}
-                      onChange={(e) => changeDraft("clientName", e.target.value.toUpperCase())}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setDraft(null);
-                        if (e.key === "Enter") saveDraft();
-                      }}
-                      className={cn(DRAFT_INPUT, "font-medium uppercase tracking-wide")}
-                      placeholder="NOM CLIENT"
-                      autoFocus
-                    />
-                  </div>
-
-                  {/* Désignation — avant Qté */}
-                  <div className={CELL_WRAP}>
-                    <input
-                      type="text"
-                      value={draft.designation}
-                      onChange={(e) => changeDraft("designation", e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }}
-                      className={DRAFT_INPUT}
-                      placeholder="Description du travail…"
-                    />
-                  </div>
-
-                  {/* Qté */}
-                  <div className={CELL_WRAP}>
-                    <input
-                      type="number"
-                      list="draft-qty-list"
-                      value={draft.quantity}
-                      onChange={(e) => changeDraft("quantity", parseFloat(e.target.value) || 1)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }}
-                      className={cn(DRAFT_INPUT, "text-center")}
-                      placeholder="1"
-                      min="1"
-                    />
-                    <datalist id="draft-qty-list">
-                      {QTY_PRESETS.map((v) => <option key={v} value={v} />)}
-                    </datalist>
-                  </div>
-
-                  {/* Note */}
-                  <div className={CELL_WRAP}>
-                    <input
-                      type="text"
-                      value={draft.note}
-                      onChange={(e) => changeDraft("note", e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }}
-                      className={cn(DRAFT_INPUT, "italic placeholder:not-italic")}
-                      placeholder="Précisions…"
-                    />
-                  </div>
-
-                  {/* Prix unitaire */}
-                  <div className={CELL_WRAP}>
-                    <input
-                      type="number"
-                      value={draft.unitPrice || ""}
-                      onChange={(e) => changeDraft("unitPrice", parseFloat(e.target.value) || 0)}
-                      onKeyDown={(e) => { if (e.key === "Enter") saveDraft(); }}
-                      className={cn(DRAFT_INPUT, "text-right")}
-                      placeholder="0"
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-
-                  {/* Total live */}
-                  <div className="h-full flex items-center justify-end px-3 text-[13px] font-semibold tabular-nums text-slate-700 whitespace-nowrap">
-                    {draft.quantity * draft.unitPrice > 0
-                      ? `${(draft.quantity * draft.unitPrice).toFixed(2)} €`
-                      : "—"}
-                  </div>
-
-                  {/* Échéance */}
-                  <div className={CELL_WRAP}>
-                    <input
-                      type="date"
-                      value={draft.deadline}
-                      onChange={(e) => changeDraft("deadline", e.target.value)}
-                      className={cn(DRAFT_INPUT, "text-[13px] tabular-nums")}
-                    />
-                  </div>
-
-                  {/* État */}
-                  <div className={CELL_WRAP}>
-                    <div className="relative w-full">
-                      <div className={cn(
-                        "flex items-center h-8 gap-1 px-2.5 rounded-lg border",
-                        "border-blue-200/50 bg-white text-[13px] text-slate-700 shadow-sm"
-                      )}>
-                        <span className="truncate flex-1">{STATUS_LABELS[draft.status]}</span>
-                        <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
-                      </div>
-                      <select
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full"
-                        value={draft.status}
-                        onChange={(e) => changeDraft("status", e.target.value as PlanningStatus)}
-                      >
-                        {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                          <option key={key} value={key}>{label}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Interne */}
-                  <div className={CELL_WRAP}>
-                    <div className="relative w-full">
-                      <div className={cn(
-                        "flex items-center h-8 gap-1 px-2.5 rounded-lg border",
-                        "border-blue-200/50 bg-white text-[13px] text-slate-700 shadow-sm"
-                      )}>
-                        <span className="truncate flex-1">
-                          {TEAM.find((p) => p.key === draft.responsible)?.name || "—"}
-                        </span>
-                        <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
-                      </div>
-                      <select
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full"
-                        value={draft.responsible}
-                        onChange={(e) => changeDraft("responsible", e.target.value)}
-                      >
-                        <option value="">—</option>
-                        {TEAM.map((p) => (
-                          <option key={p.key} value={p.key}>{p.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Couleur */}
-                  <div className={CELL_WRAP}>
-                    <ColorPicker value={draft.color} onChange={(c) => changeDraft("color", c)} />
-                  </div>
-
-                  {/* Confirmer / Fermer */}
-                  <div className="h-full flex items-center justify-center gap-1.5 px-1.5">
-                    <button
-                      onClick={saveDraft}
-                      disabled={savingDraft}
-                      title="Valider et continuer"
-                      className="p-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white transition-colors disabled:opacity-60"
-                    >
-                      {savingDraft ? (
-                        <div className="h-3.5 w-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                      ) : (
-                        <Check className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-                    <button
-                      onClick={() => setDraft(null)}
-                      title="Fermer"
-                      className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-500 transition-colors"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                </div>{/* end inner grid */}
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* ── État vide ────────────────────────────────────────────────────── */}
           <AnimatePresence>
-            {sorted.length === 0 && !draft && (
+            {sorted.length === 0 && (
               <motion.div
                 key="empty"
                 initial={{ opacity: 0 }}
@@ -670,7 +424,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                 <p className="text-[13px] text-slate-400">
                   Aucune ligne —{" "}
                   <button
-                    onClick={showDraft}
+                    onClick={addRow}
                     className="font-semibold text-slate-600 underline underline-offset-2 hover:text-slate-900 transition-colors"
                   >
                     créer la première
@@ -982,14 +736,14 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
           {/* ── Bouton ajout bas de tableau ──────────────────────────────────── */}
           {sorted.length > 0 && (
             <button
-              onClick={showDraft}
-              disabled={savingDraft}
+              onClick={addRow}
+              disabled={addingRow}
               className={cn(
                 "w-full flex items-center gap-2 px-5 py-3",
                 "text-[12px] font-semibold text-blue-500",
                 "transition-colors duration-150 border-t border-slate-100",
                 "hover:text-blue-700 hover:bg-blue-50/50",
-                savingDraft && "opacity-40 cursor-default"
+                addingRow && "opacity-40 cursor-default"
               )}
             >
               <Plus className="h-3.5 w-3.5 shrink-0" />
