@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { broadcast } from "@/lib/socket-server";
+import { noteEvents } from "@/lib/events";
 
 const VALID_PEOPLE = ["loic", "charlie", "melina", "amandine"];
 
@@ -48,6 +49,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     `;
 
     broadcast("note:changed", rows[0]);
+    noteEvents.emit("note-changed", rows[0]);
     return NextResponse.json({ note: rows[0] });
   } catch (error) {
     console.error(`PATCH /api/notes/${person} error:`, error);
