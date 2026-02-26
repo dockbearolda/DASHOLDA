@@ -8,9 +8,9 @@
  * ─ Apple design: Inter font, antialiased, light gray hover
  */
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { motion, Reorder, AnimatePresence } from "framer-motion";
-import { Trash2, Plus, Check } from "lucide-react";
+import { Trash2, Plus, Check, FolderOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PRTItem {
@@ -39,6 +39,46 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeletingIds, setIsDeletingIds] = useState<Set<string>>(new Set());
   const [isAddingNew, setIsAddingNew] = useState(false);
+
+  // File picker — un seul input caché partagé entre toutes les lignes
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickingForIdRef = useRef<string | null>(null);
+
+  const handleFilePick = useCallback((itemId: string) => {
+    pickingForIdRef.current = itemId;
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      const id = pickingForIdRef.current;
+      if (!file || !id) return;
+
+      // Nom du fichier sans extension → champ Design
+      const nameWithoutExt = file.name.replace(/\.[^/.]+$/, "");
+
+      const updated = items.map((i) =>
+        i.id === id ? { ...i, design: nameWithoutExt } : i
+      );
+      onItemsChange?.(updated);
+
+      try {
+        await fetch(`/api/prt-requests/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ design: nameWithoutExt }),
+        });
+      } catch (err) {
+        console.error("Failed to update design from file:", err);
+      }
+
+      // Reset pour pouvoir re-sélectionner le même fichier
+      e.target.value = "";
+      pickingForIdRef.current = null;
+    },
+    [items, onItemsChange]
+  );
 
   const sortedItems = useMemo(
     () => {
@@ -123,13 +163,22 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
   }, [items, onItemsChange]);
 
   return (
-    <div className="flex flex-col gap-3 rounded-[18px] bg-white border border-gray-100 shadow-sm p-4"
+    <div
+      className="flex flex-col gap-3 rounded-[18px] bg-white border border-gray-100 shadow-sm p-4"
       style={{
         fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
         WebkitFontSmoothing: "antialiased",
         MozOsxFontSmoothing: "grayscale",
       }}
     >
+      {/* Input fichier caché — partagé entre toutes les lignes */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between pb-3">
         <h2 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
@@ -299,33 +348,41 @@ export function PRTManager({ items, onItemsChange }: PRTManagerProps) {
                       placeholder="30x40cm"
                     />
 
-                    {/* Design (1fr) */}
-                    <input
-                      type="text"
-                      value={item.design}
-                      onChange={(e) => {
-                        const updated = items.map((i) =>
-                          i.id === item.id ? { ...i, design: e.target.value } : i
-                        );
-                        onItemsChange?.(updated);
-                      }}
-                      onBlur={async () => {
-                        try {
-                          await fetch(`/api/prt-requests/${item.id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ design: item.design }),
-                          });
-                        } catch (err) {
-                          console.error("Failed to update:", err);
-                        }
-                      }}
-                      className={cn(
-                        CELL_CLASS,
-                        "bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-sm"
-                      )}
-                      placeholder="Design"
-                    />
+                    {/* Design (1fr) — saisie manuelle OU fichier Windows */}
+                    <div className={cn(CELL_CLASS, "flex items-center gap-1 min-w-0")}>
+                      <input
+                        type="text"
+                        value={item.design}
+                        onChange={(e) => {
+                          const updated = items.map((i) =>
+                            i.id === item.id ? { ...i, design: e.target.value } : i
+                          );
+                          onItemsChange?.(updated);
+                        }}
+                        onBlur={async () => {
+                          try {
+                            await fetch(`/api/prt-requests/${item.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ design: item.design }),
+                            });
+                          } catch (err) {
+                            console.error("Failed to update:", err);
+                          }
+                        }}
+                        className="flex-1 min-w-0 bg-transparent border-none focus:outline-none focus:bg-white focus:border-b border-gray-200 text-gray-900 text-sm truncate"
+                        placeholder="Design"
+                        title={item.design}
+                      />
+                      <button
+                        onClick={() => handleFilePick(item.id)}
+                        className="shrink-0 p-1 rounded text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                        title="Choisir un fichier depuis Windows"
+                        type="button"
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
 
                     {/* Color (1fr) */}
                     <input
