@@ -15,8 +15,8 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { motion, useMotionValue, useTransform, animate, Reorder, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Check, GripVertical } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Trash2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TodoItem } from "./person-note-modal";
 
@@ -48,78 +48,6 @@ function apiSave(key: string, todos: TodoItem[]) {
   }).catch(() => {});
 }
 
-// ── SwipeableTodoRow — Apple-style swipe-to-dismiss ──────────────────────────
-
-function SwipeableTodoRow({
-  isEditing,
-  onDismiss,
-  children,
-}: {
-  isEditing: boolean;
-  onDismiss: () => void;
-  children: React.ReactNode;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const x = useMotionValue(0);
-
-  // Opacité progressive (fade to 20% at threshold)
-  const opacity = useTransform(x, [-150, 0, 150], [0.2, 1, 0.2]);
-
-  // Fond rouge derrière (progresse jusqu'à 18% opacity)
-  const bgOpacity = useTransform(
-    x,
-    [-150, -30, 0, 30, 150],
-    [0.18, 0.08, 0, 0.08, 0.18]
-  );
-
-  const handleDragEnd = (_: any, info: any) => {
-    const containerWidth = containerRef.current?.offsetWidth ?? 200;
-    const threshold = containerWidth * 0.5;
-    const offset = info.offset.x;
-
-    if (Math.abs(offset) > threshold) {
-      // Threshold atteint → suppression avec animation de sortie
-      navigator.vibrate?.(40); // Haptic si supporté
-      animate(x, offset > 0 ? 600 : -600, { duration: 0.2 });
-      setTimeout(onDismiss, 180);
-    } else {
-      // Ressort élastique de retour à zéro
-      animate(x, 0, {
-        type: "spring",
-        stiffness: 400,
-        damping: 30,
-      });
-    }
-  };
-
-  return (
-    <div
-      ref={containerRef}
-      className="relative overflow-hidden rounded-md"
-    >
-      {/* Fond rouge derrière la ligne */}
-      <motion.div
-        className="absolute inset-0 rounded-md bg-red-500"
-        style={{ opacity: bgOpacity }}
-      />
-
-      {/* Ligne swipeable */}
-      <motion.div
-        style={{
-          x,
-          opacity,
-          position: "relative",
-        }}
-        drag={isEditing ? false : "x"}
-        dragConstraints={{ left: 0, right: 0 }}
-        dragElastic={0.3}
-        onDragEnd={handleDragEnd}
-      >
-        {children}
-      </motion.div>
-    </div>
-  );
-}
 
 // ── ReminderCard ───────────────────────────────────────────────────────────────
 
@@ -290,101 +218,81 @@ function ReminderCard({
           <p className="text-[13px] italic text-gray-300 py-6 text-center">Aucune tâche</p>
         )}
 
-        <Reorder.Group
-          axis="y"
-          values={todos}
-          onReorder={onUpdate}
-          className="flex flex-col gap-2"
-        >
-          <AnimatePresence mode="popLayout">
-            {todos.map((todo) => (
-              <Reorder.Item
-                key={todo.id}
-                value={todo}
-                className="rounded-[14px]"
+        <AnimatePresence mode="popLayout">
+          {todos.map((todo) => (
+            <motion.div
+              key={todo.id}
+              layout
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, x: 40, transition: { duration: 0.15 } }}
+              draggable={editingId !== todo.id}
+              onDragStart={(e) => {
+                if (editingId === todo.id) return;
+                handleDragStart(e as unknown as React.DragEvent, todo);
+              }}
+              className={cn(
+                "flex items-center gap-2.5 w-full rounded-[14px] px-3 py-2.5 bg-white border border-gray-100",
+                "transition-colors",
+                editingId !== todo.id && "cursor-grab active:cursor-grabbing hover:border-gray-200 hover:shadow-sm group",
+              )}
+            >
+              {/* Dot toggle ✓ */}
+              <motion.button
+                onClick={(e) => { e.stopPropagation(); toggle(todo.id); }}
+                whileTap={{ scale: 0.85 }}
+                className={cn(
+                  "shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
+                  todo.done
+                    ? "bg-green-500 border-green-500"
+                    : "border-gray-300 hover:border-green-500 hover:bg-green-50"
+                )}
               >
-                <SwipeableTodoRow
-                  isEditing={editingId === todo.id}
-                  onDismiss={() => onUpdate(todos.filter(t => t.id !== todo.id))}
+                {todo.done && <Check className="h-3 w-3 text-white" />}
+              </motion.button>
+
+              {/* Texte ou input inline */}
+              {editingId === todo.id ? (
+                <input
+                  ref={editInputRef}
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter")  { e.preventDefault(); commitEdit(); }
+                    if (e.key === "Escape") { setEditingId(null); setEditText(""); }
+                  }}
+                  onBlur={commitEdit}
+                  className="flex-1 text-sm font-medium text-gray-900 bg-transparent outline-none border-b border-blue-400"
+                />
+              ) : (
+                <span
+                  onClick={() => handleItemClick(todo)}
+                  className={cn(
+                    "flex-1 text-sm font-medium select-none cursor-text hover:text-gray-700 transition-colors",
+                    todo.done ? "line-through text-gray-400" : "text-gray-900"
+                  )}
                 >
-                  <div
-                    className={cn(
-                      "flex items-center gap-2 w-full rounded-[14px] pl-1.5 pr-3 py-2.5 bg-white border border-gray-100",
-                      "transition-all",
-                      editingId !== todo.id && "hover:border-gray-200 hover:shadow-sm group",
-                    )}
-                  >
-                    {/* Grip handle — draggable natif, stopPropagation empêche Framer Motion d'intercepter */}
-                    {editingId !== todo.id && (
-                      <span
-                        draggable
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onDragStart={(e) => handleDragStart(e, todo)}
-                        className="shrink-0 p-1 rounded cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition-colors touch-none"
-                        title="Glisser vers une autre carte"
-                      >
-                        <GripVertical className="h-3 w-3" />
-                      </span>
-                    )}
-                  {/* Dot toggle ✓ avec animation */}
-                  <motion.button
-                    onClick={(e) => { e.stopPropagation(); toggle(todo.id); }}
-                    whileTap={{ scale: 0.85 }}
-                    className={cn(
-                      "shrink-0 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all duration-200",
-                      todo.done
-                        ? "bg-green-500 border-green-500"
-                        : "border-gray-300 hover:border-green-500 hover:bg-green-50"
-                    )}
-                  >
-                    {todo.done && <Check className="h-3 w-3 text-white" />}
-                  </motion.button>
+                  {todo.text}
+                </span>
+              )}
 
-                  {/* Texte ou input inline */}
-                  {editingId === todo.id ? (
-                    <input
-                      ref={editInputRef}
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter")  { e.preventDefault(); commitEdit(); }
-                        if (e.key === "Escape") { setEditingId(null); setEditText(""); }
-                      }}
-                      onBlur={commitEdit}
-                      className="flex-1 text-sm font-medium text-gray-900 bg-transparent outline-none border-b border-blue-400"
-                    />
-                  ) : (
-                    <span
-                      onClick={() => handleItemClick(todo)}
-                      className={cn(
-                        "flex-1 text-sm font-medium select-none cursor-text hover:text-gray-700 transition-colors",
-                        todo.done ? "line-through text-gray-400" : "text-gray-900"
-                      )}
-                    >
-                      {todo.text}
-                    </span>
-                  )}
-
-                  {/* Trash icon - visible on hover */}
-                  {editingId !== todo.id && (
-                    <motion.button
-                      initial={{ opacity: 0 }}
-                      whileHover={{ opacity: 1 }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onUpdate(todos.filter(t => t.id !== todo.id));
-                      }}
-                      className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </motion.button>
-                  )}
-                  </div>
-                </SwipeableTodoRow>
-              </Reorder.Item>
-            ))}
-          </AnimatePresence>
-        </Reorder.Group>
+              {/* Trash — visible au survol */}
+              {editingId !== todo.id && (
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  whileHover={{ opacity: 1 }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdate(todos.filter(t => t.id !== todo.id));
+                  }}
+                  className="shrink-0 p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </motion.button>
+              )}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
 
       {/* Input ajout rapide */}
