@@ -140,3 +140,46 @@ model UserProfile {
 
   @@map("user_profiles")
 }
+
+model PlanningItem {
+  id          String           @id @default(cuid())
+  priority    PlanningPriority @default(MOYENNE)
+  clientName  String           @default("")
+  quantity    Float            @default(1)
+  designation String           @default("")
+  note        String           @default("")
+  unitPrice   Float            @default(0)
+  deadline    DateTime?
+  status      PlanningStatus   @default(A_DEVISER)
+  responsible String           @default("")
+  position    Int              @default(0)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@map("planning_items")
+}
+
+enum PlanningPriority {
+  BASSE
+  MOYENNE
+  HAUTE
+}
+
+enum PlanningStatus {
+  A_DEVISER
+  ATTENTE_VALIDATION
+  MAQUETTE_A_FAIRE
+  ATTENTE_MARCHANDISE
+  A_PREPARER
+  A_PRODUIRE
+  EN_PRODUCTION
+  A_MONTER_NETTOYER
+  MANQUE_INFORMATION
+  TERMINE
+  PREVENIR_CLIENT
+  CLIENT_PREVENU
+  RELANCE_CLIENT
+  PRODUIT_RECUPERE
+  A_FACTURER
+  FACTURE_FAITE
+}
