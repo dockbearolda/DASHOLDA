@@ -766,7 +766,7 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
               >
                 {v === 'flux' ? 'Flux' : v === 'commandes' ? 'Commandes' : v === 'demande_prt' ? 'Demande de PRT' : v === 'production_dtf' ? 'Production' : v === 'workflow' ? 'Gestion d\'atelier' : v === 'planning' ? 'Planning' : 'Clients Pro'}
                 {v === 'flux' && fluxHasNotif && (
-                  <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-red-500 border border-white animate-pulse" />
+                  <span className="absolute top-0.5 right-0.5 h-2 w-2 rounded-full bg-red-400 border border-white" />
                 )}
               </button>
             ))}
