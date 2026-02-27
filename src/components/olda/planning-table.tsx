@@ -114,15 +114,14 @@ const COLORS = [
   { key: "blue",   dot: "bg-blue-400",   row: "bg-blue-50",   hover: "hover:bg-blue-100/60"   },
 ] as const;
 
-// ── Grille (13 colonnes) ───────────────────────────────────────────────────────
-// + | Priorité | Client | Désignation | Qté | Note | Prix u. | Total | Échéance | État | Interne | Couleur | ×
+// ── Grille (12 colonnes) ───────────────────────────────────────────────────────
+// Priorité | Client | Désignation | Qté | Note | Prix u. | Total | Échéance | État | Interne | Couleur | ×
 // Inline style used (not Tailwind arbitrary class) to guarantee rendering after any column edit.
 
-const GRID_COLS = "50px 110px 150px minmax(140px,1fr) 70px 150px 78px 90px 120px minmax(150px,1fr) 116px 82px 50px";
+const GRID_COLS = "110px 150px minmax(140px,1fr) 70px 150px 78px 90px 120px minmax(150px,1fr) 116px 82px 50px";
 const GRID_STYLE: CSSProperties = { gridTemplateColumns: GRID_COLS };
 
 const COL_HEADERS = [
-  { label: "",            align: "center" },
   { label: "Priorité",    align: "left"   },
   { label: "Client",      align: "left"   },
   { label: "Désignation", align: "left"   },
@@ -432,20 +431,6 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                           />
                         )}
                       </AnimatePresence>
-
-                      {/* 0. Ajouter une ligne */}
-                      <div className="h-full flex items-center justify-center">
-                        <button
-                          onClick={addRow}
-                          className={cn(
-                            "p-1.5 rounded-md transition-all duration-150",
-                            "text-slate-400 hover:text-blue-500 hover:bg-blue-50"
-                          )}
-                          aria-label="Ajouter une ligne"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
 
                       {/* 1. Priorité */}
                       <div className={CELL_WRAP}>
