@@ -128,7 +128,7 @@ const COLORS = [
 // ── Grille (13 colonnes) ───────────────────────────────────────────────────────
 // Grip | Priorité | Client | Désignation | Qté | Note | Prix u. | Total | Échéance | État | Interne | Secteur | ×
 
-const GRID_COLS = "32px 90px 190px 165px 70px 90px 90px 90px 120px 120px 110px 130px 44px";
+const GRID_COLS = "32px 90px 190px 165px 70px 90px 90px 90px 120px 175px 110px 130px 44px";
 const GRID_STYLE: CSSProperties = { gridTemplateColumns: GRID_COLS };
 
 const COL_HEADERS = [
