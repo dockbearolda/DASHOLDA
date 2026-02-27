@@ -684,38 +684,40 @@ export function OldaBoard({ orders: initialOrders }: { orders: Order[] }) {
       style={{ fontFamily: "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif" }}
     >
 
-      {/* ── Header : tabs à gauche · indicateur live à droite ─────────────── */}
-      <div className="shrink-0 px-4 sm:px-6 pt-5 pb-3 flex items-center gap-3 border-b border-gray-100">
-        {/* Tabs — alignés à gauche */}
-        <div className="flex gap-1 p-1 rounded-xl bg-gray-100/80 overflow-x-auto">
-          {(['flux', 'commandes', 'demande_prt', 'production_dtf', 'workflow', 'planning'] as const).map((v) => (
+      {/* ── Header : tabs centrés · indicateur live à droite ──────────────── */}
+      <div className="shrink-0 px-4 sm:px-6 pt-5 pb-3 relative flex items-center justify-center border-b border-gray-100">
+        {/* Tabs — centrés */}
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 p-1 rounded-xl bg-gray-100/80 overflow-x-auto">
+            {(['flux', 'commandes', 'demande_prt', 'production_dtf', 'workflow', 'planning'] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setViewTab(v)}
+                className={cn(
+                  "px-3.5 py-1.5 rounded-[10px] text-[13px] font-semibold transition-all whitespace-nowrap",
+                  "[touch-action:manipulation]",
+                  viewTab === v
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                {v === 'flux' ? 'Flux' : v === 'commandes' ? 'Commandes' : v === 'demande_prt' ? 'Demande de PRT' : v === 'production_dtf' ? 'Production' : v === 'workflow' ? 'Gestion d\'atelier' : 'Planning'}
+              </button>
+            ))}
+          </div>
+          {/* Bouton + commande — visible sur l'onglet commandes */}
+          {viewTab === 'commandes' && (
             <button
-              key={v}
-              onClick={() => setViewTab(v)}
-              className={cn(
-                "px-3.5 py-1.5 rounded-[10px] text-[13px] font-semibold transition-all whitespace-nowrap",
-                "[touch-action:manipulation]",
-                viewTab === v
-                  ? "bg-white text-gray-900 shadow-sm"
-                  : "text-gray-500 hover:text-gray-700"
-              )}
+              onClick={addOrder}
+              className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-all duration-150 shrink-0"
+              aria-label="Ajouter une commande"
             >
-              {v === 'flux' ? 'Flux' : v === 'commandes' ? 'Commandes' : v === 'demande_prt' ? 'Demande de PRT' : v === 'production_dtf' ? 'Production' : v === 'workflow' ? 'Gestion d\'atelier' : 'Planning'}
+              <Plus className="h-4 w-4" />
             </button>
-          ))}
+          )}
         </div>
-        {/* Bouton + commande — visible sur l'onglet commandes */}
-        {viewTab === 'commandes' && (
-          <button
-            onClick={addOrder}
-            className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-all duration-150 shrink-0"
-            aria-label="Ajouter une commande"
-          >
-            <Plus className="h-4 w-4" />
-          </button>
-        )}
-        {/* Indicateur live — repoussé à droite */}
-        <div className="ml-auto">
+        {/* Indicateur live — positionné à droite en absolu */}
+        <div className="absolute right-4 sm:right-6">
           <LiveIndicator connected={sseConnected} />
         </div>
       </div>
