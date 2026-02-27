@@ -23,7 +23,7 @@ services:
       - "3000:3000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/dasholda
-      NODE_ENV: production
+      NODE_ENV: development
     depends_on:
       db:
         condition: service_healthy
