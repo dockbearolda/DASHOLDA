@@ -15,7 +15,7 @@
  *   • Keep-adding  : après validation, nouvelle ligne vide automatique
  */
 
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useState, useCallback, useMemo, useRef, type CSSProperties } from "react";
 import { motion, Reorder, AnimatePresence } from "framer-motion";
 import { Trash2, Plus, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -116,8 +116,10 @@ const COLORS = [
 
 // ── Grille (12 colonnes) ───────────────────────────────────────────────────────
 // Priorité | Client | Désignation | Qté | Note | Prix u. | Total | Échéance | État | Interne | Couleur | ×
+// Inline style used (not Tailwind arbitrary class) to guarantee rendering after any column edit.
 
-const GRID = "grid-cols-[110px_150px_minmax(140px,1fr)_70px_150px_78px_90px_120px_minmax(150px,1fr)_116px_82px_50px]";
+const GRID_COLS = "110px 150px minmax(140px,1fr) 70px 150px 78px 90px 120px minmax(150px,1fr) 116px 82px 50px";
+const GRID_STYLE: CSSProperties = { gridTemplateColumns: GRID_COLS };
 
 const COL_HEADERS = [
   { label: "Priorité",    align: "left"   },
@@ -139,14 +141,14 @@ const COL_HEADERS = [
 const CELL_DISPLAY =
   "w-full h-8 px-2.5 text-[13px] text-slate-800 rounded-lg cursor-text " +
   "flex items-center hover:bg-black/[0.03] active:bg-black/[0.05] " +
-  "transition-colors duration-100 select-none";
+  "transition-colors duration-100 select-none overflow-hidden whitespace-nowrap";
 
 const CELL_INPUT =
   "w-full h-8 px-2.5 text-[13px] text-slate-900 bg-white rounded-lg " +
   "border border-blue-300 ring-2 ring-blue-100/70 shadow-sm focus:outline-none";
 
 const EMPTY_TEXT = "text-slate-300 italic font-normal";
-const CELL_WRAP  = "h-full flex items-center px-1.5";
+const CELL_WRAP  = "h-full flex items-center px-1.5 overflow-hidden min-w-0";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -379,10 +381,14 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
 
       {/* ── Tableau (scroll horizontal) ─────────────────────────────────────── */}
       <div className="overflow-x-auto">
-        <div className="min-w-[1200px]">
+        {/* min-width ≥ sum of fixed columns (≈1306px) to prevent grid collapse */}
+        <div className="min-w-[1400px]">
 
           {/* En-têtes */}
-          <div className={cn("grid bg-slate-50/70 border-b border-slate-100", GRID)}>
+          <div
+            className="grid bg-slate-50/70 border-b border-slate-100"
+            style={GRID_STYLE}
+          >
             {COL_HEADERS.map(({ label, align }, i) => (
               <div
                 key={i}
@@ -438,12 +444,12 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                       exit={{ opacity: 0, x: 24, transition: { duration: 0.15 } }}
                       transition={{ type: "spring", stiffness: 500, damping: 42 }}
                       className={cn(
-                        "grid h-[44px] border-b border-slate-100 group relative",
+                        "grid w-full h-[44px] border-b border-slate-100 group relative",
                         "transition-colors duration-100",
-                        GRID,
                         getRowBg(item.color ?? "", urgent),
                         isDeleting && "pointer-events-none"
                       )}
+                      style={GRID_STYLE}
                     >
 
                       {/* Indicateur de sauvegarde */}
