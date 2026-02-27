@@ -1,43 +1,45 @@
 "use client";
 
 /**
- * PlanningTable — Inline-editable, Apple Design Language
+ * PlanningTable — Apple-grade Premium Rewrite
  *
- * Architecture :
- *   • Draft row    : ligne locale (useState) créée avant tout write en BDD
- *   • Click-to-edit: cellule = texte au repos → input/select au clic
- *   • Auto-save    : sauvegarde onBlur pour textes/nombres, immédiate pour selects
- *   • Save dot     : indicateur bleu pulsant (iOS style) pendant le PATCH
- *   • Total live   : recalcul en temps réel dès frappe sur qté ou prix
- *   • Urgence      : fond rouge si échéance ≤ 1 jour ou dépassée
- *   • Priorité     : menu déroulant Apple (Basse / Moyenne / Haute)
- *   • Désignation  : menu déroulant sélectif (Tshirt, Mug, Textile, Accessoire, Autre)
- *   • Note         : auto-expand hauteur quand le texte va à la ligne
- *   • Couleur      : 5 pastilles de couleur par ligne
- *   • Drag-reorder : poignée de glissement visible pour réordonner les lignes
- *   • Keep-adding  : nouvelles lignes ajoutées en bas
+ * Features:
+ *  1. Recherche globale Glassmorphism (client, famille, note)
+ *  2. Colonne "Famille" (Textiles, Tasses, Découpe et Gravure, Goodies)
+ *  3. Notes truncate + tooltip au survol + expansion au clic
+ *  4. Suppression des colonnes Prix unitaire et Total
+ *  5. Quantités = input direct sans flèches step
+ *  6. Échéance hybride : frappe JJ/MM + icône calendrier (popover natif)
+ *  7. Secteur pastels, placé juste après Client
+ *  8. Onglets filtrés (Général / Textiles / Gravure & Découpe / Impression UV / Goodies)
+ *  9. Tri intelligent HAUTE → haut, DnD manuel
+ * 10. Indicateur Type PRO / PERSO / OLDA (bordure gauche colorée + badge)
  */
 
-import { useState, useCallback, useMemo, useRef, type CSSProperties } from "react";
+import {
+  useState, useCallback, useMemo, useRef, useEffect, type CSSProperties,
+} from "react";
 import { motion, Reorder, AnimatePresence } from "framer-motion";
-import { Trash2, Plus, ChevronDown, GripVertical } from "lucide-react";
+import {
+  Trash2, Plus, ChevronDown, GripVertical, Search, Calendar, X,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
+// ── Types ───────────────────────────────────────────────────────────────────────
 
 export interface PlanningItem {
   id: string;
-  priority: "BASSE" | "MOYENNE" | "HAUTE";
-  clientName: string;
-  quantity: number;
-  designation: string;
-  note: string;
-  unitPrice: number;
-  deadline: string | null;
-  status: PlanningStatus;
+  priority:    "BASSE" | "MOYENNE" | "HAUTE";
+  clientName:  string;
+  designation: string;   // mapped to « Famille » in UI
+  quantity:    number;
+  note:        string;
+  unitPrice:   number;   // kept for backward-compat, not displayed
+  deadline:    string | null;
+  status:      PlanningStatus;
   responsible: string;
-  color: string;
-  position: number;
+  color:       string;   // stores secteur value
+  position:    number;
 }
 
 export type PlanningStatus =
@@ -59,22 +61,18 @@ export type PlanningStatus =
   | "FACTURE_FAITE";
 
 interface PlanningTableProps {
-  items: PlanningItem[];
+  items:          PlanningItem[];
   onItemsChange?: (items: PlanningItem[]) => void;
 }
 
-// ── Constantes ─────────────────────────────────────────────────────────────────
+// ── Constants ───────────────────────────────────────────────────────────────────
 
-const PRIORITY_STYLE: Record<string, string> = {
-  BASSE:   "bg-slate-200/80 text-slate-600",
-  MOYENNE: "bg-blue-100 text-blue-600",
-  HAUTE:   "bg-orange-100 text-orange-600",
-};
+const PRIORITY_RANK = { HAUTE: 2, MOYENNE: 1, BASSE: 0 } as const;
 
-const PRIORITY_LABEL: Record<string, string> = {
-  BASSE:   "Basse",
-  MOYENNE: "Moyenne",
-  HAUTE:   "Haute",
+const PRIORITY_CONFIG: Record<string, { label: string; style: string }> = {
+  BASSE:   { label: "Basse",   style: "bg-slate-100 text-slate-500"  },
+  MOYENNE: { label: "Moyenne", style: "bg-blue-50 text-blue-600"      },
+  HAUTE:   { label: "Haute",   style: "bg-orange-50 text-orange-600" },
 };
 
 const STATUS_LABELS: Record<PlanningStatus, string> = {
@@ -104,87 +102,307 @@ const TEAM = [
   { key: "renaud",   name: "Renaud"   },
 ] as const;
 
-const QTY_PRESETS = [1, 2, 3, 5, 10, 15, 20, 25, 30, 50, 75, 100, 150, 200, 300, 500];
-
-const PRICE_PRESETS = [0, 5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 200, 300, 500];
-
-const DESIGNATION_OPTIONS = [
-  { value: "Tshirt",     label: "Tshirt" },
-  { value: "Mug",        label: "Mug" },
-  { value: "Textile",    label: "Textile" },
-  { value: "Accessoire", label: "Accessoire", needsPrecision: true },
-  { value: "Autre",      label: "Autre",      needsPrecision: true },
+// Famille options (feature 2)
+const FAMILLE_OPTIONS = [
+  "Textiles",
+  "Tasses",
+  "Découpe et Gravure",
+  "Goodies",
 ] as const;
 
-// 5 codes couleur de ligne
-const COLORS = [
-  { key: "rose",   dot: "bg-rose-400",   row: "bg-rose-50",   hover: "hover:bg-rose-100/60"   },
-  { key: "orange", dot: "bg-orange-400", row: "bg-orange-50", hover: "hover:bg-orange-100/60" },
-  { key: "amber",  dot: "bg-amber-400",  row: "bg-amber-50",  hover: "hover:bg-amber-100/60"  },
-  { key: "green",  dot: "bg-green-400",  row: "bg-green-50",  hover: "hover:bg-green-100/60"  },
-  { key: "blue",   dot: "bg-blue-400",   row: "bg-blue-50",   hover: "hover:bg-blue-100/60"   },
+// Secteur options with pastel pills (feature 7)
+const SECTEUR_CONFIG = [
+  {
+    value: "Textiles",
+    label: "Textiles",
+    pill:  "bg-emerald-50 text-emerald-700 border-emerald-100",
+    dot:   "bg-emerald-400",
+  },
+  {
+    value: "Gravure et découpe laser",
+    label: "Gravure & Découpe",
+    pill:  "bg-violet-50 text-violet-700 border-violet-100",
+    dot:   "bg-violet-400",
+  },
+  {
+    value: "Impression UV",
+    label: "Impression UV",
+    pill:  "bg-cyan-50 text-cyan-700 border-cyan-100",
+    dot:   "bg-cyan-400",
+  },
+  {
+    value: "Goodies",
+    label: "Goodies",
+    pill:  "bg-amber-50 text-amber-700 border-amber-100",
+    dot:   "bg-amber-400",
+  },
 ] as const;
 
-// ── Grille (13 colonnes) ───────────────────────────────────────────────────────
-// Grip | Priorité | Client | Désignation | Qté | Note | Prix u. | Total | Échéance | État | Interne | Secteur | ×
+// Type indicator config (feature 10)
+const TYPE_CONFIG = {
+  PRO:   { label: "PRO",   badge: "bg-blue-500 text-white",     border: "border-l-blue-400"    },
+  PERSO: { label: "PERSO", badge: "bg-emerald-500 text-white",  border: "border-l-emerald-400" },
+  OLDA:  { label: "OLDA",  badge: "bg-amber-400 text-white",    border: "border-l-amber-400"   },
+  "":    { label: "·",     badge: "bg-slate-100 text-slate-400", border: "border-l-transparent" },
+} as const;
+type ItemType = keyof typeof TYPE_CONFIG;
 
-const GRID_COLS = "32px 90px 190px 165px 70px 90px 90px 90px 120px 175px 110px 130px 44px";
+// Tabs (feature 8)
+type TabKey = "general" | "textiles" | "gravure" | "impression-uv" | "goodies";
+const TABS: { key: TabKey; label: string; secteur: string | null }[] = [
+  { key: "general",       label: "Général",           secteur: null                        },
+  { key: "textiles",      label: "Textiles",           secteur: "Textiles"                  },
+  { key: "gravure",       label: "Gravure & Découpe",  secteur: "Gravure et découpe laser"  },
+  { key: "impression-uv", label: "Impression UV",      secteur: "Impression UV"             },
+  { key: "goodies",       label: "Goodies",            secteur: "Goodies"                   },
+];
+
+// ── Grid layout (12 columns) ────────────────────────────────────────────────────
+// Grip | Type | Priorité | Client | Secteur | Famille | Qté | Note | Échéance | État | Interne | ×
+
+const GRID_COLS =
+  "32px 76px 94px 175px 158px 142px 64px minmax(110px,1fr) 132px 172px 108px 40px";
 const GRID_STYLE: CSSProperties = { gridTemplateColumns: GRID_COLS };
 
 const COL_HEADERS = [
-  { label: "",            align: "center" },
-  { label: "Priorité",    align: "left"   },
-  { label: "Client",      align: "left"   },
-  { label: "Désignation", align: "left"   },
-  { label: "Qté",         align: "center" },
-  { label: "Note",        align: "left"   },
-  { label: "Prix u.",     align: "right"  },
-  { label: "Total",       align: "right"  },
-  { label: "Échéance",    align: "left"   },
-  { label: "État",        align: "left"   },
-  { label: "Interne",     align: "center" },
-  { label: "Secteur",     align: "left"   },
-  { label: "",            align: "center" },
+  { label: "",         align: "center" },
+  { label: "Type",     align: "center" },
+  { label: "Priorité", align: "left"   },
+  { label: "Client",   align: "left"   },
+  { label: "Secteur",  align: "left"   },
+  { label: "Famille",  align: "left"   },
+  { label: "Qté",      align: "center" },
+  { label: "Note",     align: "left"   },
+  { label: "Échéance", align: "left"   },
+  { label: "État",     align: "left"   },
+  { label: "Interne",  align: "center" },
+  { label: "",         align: "center" },
 ] as const;
 
-// ── Styles partagés ────────────────────────────────────────────────────────────
-
-const CELL_DISPLAY =
-  "w-full h-8 px-2.5 text-[13px] text-slate-800 rounded-lg cursor-text " +
-  "flex items-center hover:bg-black/[0.03] active:bg-black/[0.05] " +
-  "transition-colors duration-100 select-none overflow-hidden whitespace-nowrap";
+// ── Shared styles ───────────────────────────────────────────────────────────────
 
 const CELL_INPUT =
   "w-full h-8 px-2.5 text-[13px] text-slate-900 bg-white rounded-lg " +
   "border border-blue-300 ring-2 ring-blue-100/70 shadow-sm focus:outline-none";
 
-const EMPTY_TEXT = "text-slate-300 italic font-normal";
+const EMPTY_CLS  = "text-slate-300 italic font-normal";
 const CELL_WRAP  = "h-full flex items-center px-1.5 overflow-hidden min-w-0";
 
-// ── Apple-style select wrapper ─────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────────
 
-function AppleSelect({
-  value,
-  displayLabel,
-  onChange,
-  children,
-  className,
-  pillStyle,
+function isUrgent(deadline: string | null): boolean {
+  if (!deadline) return false;
+  return (new Date(deadline).getTime() - Date.now()) / 86_400_000 <= 1;
+}
+
+function formatDDMM(date: string | null): string {
+  if (!date) return "";
+  const d = new Date(date);
+  return isNaN(d.getTime())
+    ? ""
+    : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+}
+
+function parseDDMM(text: string): string | null {
+  const clean = text.trim().replace(/[.\-\s]/g, "/");
+  const parts  = clean.split("/").filter(Boolean);
+  if (parts.length < 2) return null;
+  const day   = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  if (isNaN(day) || isNaN(month) || day < 1 || day > 31 || month < 1 || month > 12) return null;
+  let year: number;
+  if (parts.length >= 3 && parts[2]) {
+    year = parseInt(parts[2], 10);
+    if (year < 100) year += 2000;
+  } else {
+    year = new Date().getFullYear();
+    const candidate = new Date(year, month - 1, day);
+    if (candidate < new Date()) year++;
+  }
+  const d = new Date(year, month - 1, day);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().split("T")[0];
+}
+
+function toTitleCase(s: string): string {
+  return s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
+}
+
+// ── Sub-components ──────────────────────────────────────────────────────────────
+
+// Search bar glassmorphism (feature 1)
+function SearchBar({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className={cn(
+      "flex items-center gap-2.5 h-9 px-3.5 rounded-xl flex-1",
+      "bg-white/60 backdrop-blur-md border border-slate-200/80 shadow-sm",
+      "transition-all duration-200",
+      "focus-within:bg-white focus-within:border-blue-200 focus-within:shadow-blue-50",
+    )}>
+      <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Rechercher par client, famille, note…"
+        className="flex-1 text-[13px] text-slate-800 bg-transparent focus:outline-none placeholder:text-slate-300"
+      />
+      {value && (
+        <button
+          onClick={() => onChange("")}
+          className="text-slate-300 hover:text-slate-500 transition-colors duration-100"
+          aria-label="Effacer"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Type badge — click to cycle PRO → PERSO → OLDA → · (feature 10)
+function TypePicker({ value, onChange }: { value: ItemType; onChange: (v: ItemType) => void }) {
+  const CYCLE: ItemType[] = ["", "PRO", "PERSO", "OLDA"];
+  const cycle = () => onChange(CYCLE[(CYCLE.indexOf(value) + 1) % CYCLE.length]);
+  const cfg   = TYPE_CONFIG[value];
+  return (
+    <button
+      onClick={cycle}
+      title="Cliquer pour changer le type"
+      className={cn(
+        "px-2 py-0.5 rounded-md text-[10px] font-bold tracking-widest",
+        "transition-all duration-150 active:scale-95 select-none whitespace-nowrap",
+        cfg.badge,
+      )}
+    >
+      {cfg.label}
+    </button>
+  );
+}
+
+// Note cell — truncate + tooltip + edit (feature 3)
+function NoteCell({
+  note,
+  isEditing,
+  onStartEdit,
+  onUpdate,
+  onBlurSave,
+  onCancel,
 }: {
-  value: string;
+  note:        string;
+  isEditing:   boolean;
+  onStartEdit: () => void;
+  onUpdate:    (v: string) => void;
+  onBlurSave:  (v: string) => void;
+  onCancel:    () => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isLong = note.length > 32 || note.includes("\n");
+
+  if (isEditing) {
+    return (
+      <textarea
+        ref={textareaRef}
+        value={note}
+        autoFocus
+        rows={3}
+        onChange={(e) => onUpdate(e.target.value)}
+        onBlur={(e) => onBlurSave(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Tab")    { e.preventDefault(); textareaRef.current?.blur(); }
+          if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+        }}
+        className={cn(
+          "w-full px-2.5 py-2 text-[13px] italic text-slate-600 bg-white rounded-xl",
+          "border border-blue-300 ring-2 ring-blue-100/70 shadow-lg focus:outline-none resize-none",
+          "z-30 relative",
+        )}
+        placeholder="Précisions…"
+        style={{ minWidth: "200px" }}
+      />
+    );
+  }
+
+  return (
+    <div className="relative group/note w-full">
+      <div
+        onClick={onStartEdit}
+        className={cn(
+          "w-full h-8 px-2.5 text-[13px] rounded-lg cursor-text flex items-center",
+          "hover:bg-black/[0.03] transition-colors duration-100 select-none",
+          note ? "text-slate-500 italic" : EMPTY_CLS,
+        )}
+      >
+        <span className="truncate">{note || "Précisions…"}</span>
+      </div>
+
+      {/* Tooltip on hover for long notes */}
+      {isLong && note && (
+        <div
+          className={cn(
+            "absolute z-50 bottom-full left-0 mb-2 max-w-xs pointer-events-none",
+            "opacity-0 group-hover/note:opacity-100 transition-opacity duration-200 delay-300",
+            "bg-slate-800/95 backdrop-blur-sm text-white text-[12px] rounded-xl",
+            "px-3 py-2.5 shadow-xl whitespace-pre-wrap leading-relaxed",
+          )}
+          style={{ minWidth: "180px" }}
+        >
+          {note}
+          {/* Arrow */}
+          <span className="absolute top-full left-5 border-4 border-transparent border-t-slate-800/95" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Secteur picker with pastel pills (feature 7)
+function SecteurPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const cfg = SECTEUR_CONFIG.find((s) => s.value === value);
+  return (
+    <div className="relative w-full">
+      <div className={cn(
+        "flex items-center h-8 gap-1.5 px-2.5 rounded-lg border text-[12px] font-medium cursor-pointer",
+        "transition-all duration-100",
+        cfg
+          ? cn(cfg.pill, "hover:opacity-80")
+          : "bg-white/50 border-slate-100 text-slate-400 hover:bg-white hover:border-slate-200",
+      )}>
+        {cfg && <span className={cn("w-1.5 h-1.5 rounded-full flex-shrink-0", cfg.dot)} />}
+        <span className="truncate flex-1">{cfg?.label ?? "—"}</span>
+        <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
+      </div>
+      <select
+        className="absolute inset-0 opacity-0 cursor-pointer w-full"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">—</option>
+        {SECTEUR_CONFIG.map((s) => (
+          <option key={s.value} value={s.value}>{s.value}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// Apple-style select wrapper
+function AppleSelect({
+  value, displayLabel, onChange, children, pillStyle,
+}: {
+  value:        string;
   displayLabel: string;
-  onChange: (v: string) => void;
-  children: React.ReactNode;
-  className?: string;
-  pillStyle?: string;
+  onChange:     (v: string) => void;
+  children:     React.ReactNode;
+  pillStyle?:   string;
 }) {
   return (
-    <div className={cn("relative w-full", className)}>
+    <div className="relative w-full">
       <div className={cn(
         "flex items-center h-8 gap-1 px-2.5 rounded-lg border text-[13px]",
         "border-slate-100 bg-white/50 text-slate-800",
         "hover:bg-white hover:border-slate-200 cursor-pointer transition-all duration-100",
-        pillStyle
+        pillStyle,
       )}>
         <span className="truncate flex-1">{displayLabel}</span>
         <ChevronDown className="h-3 w-3 text-slate-400 shrink-0" />
@@ -200,120 +418,172 @@ function AppleSelect({
   );
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// Hybrid date input — text JJ/MM + calendar icon (feature 6)
+function HybridDateInput({
+  value, onChange, urgent,
+}: {
+  value:    string | null;
+  onChange: (v: string | null) => void;
+  urgent:   boolean;
+}) {
+  const [text, setText]   = useState(formatDDMM(value));
+  const hiddenRef         = useRef<HTMLInputElement>(null);
 
-function toTitleCase(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/(^|\s)\S/g, (c) => c.toUpperCase());
-}
+  // Sync text when external value changes
+  useEffect(() => { setText(formatDDMM(value)); }, [value]);
 
-function parseDesignation(d: string): { category: string; precision: string } {
-  if (!d) return { category: "", precision: "" };
-  for (const opt of DESIGNATION_OPTIONS) {
-    if ("needsPrecision" in opt && opt.needsPrecision && d.startsWith(opt.value + ": ")) {
-      return { category: opt.value, precision: d.slice(opt.value.length + 2) };
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setText(raw);
+    // Auto-parse when length matches DD/MM (5 chars)
+    if (raw.length >= 5) {
+      const parsed = parseDDMM(raw);
+      if (parsed) onChange(parsed);
     }
-    if (d === opt.value) return { category: opt.value, precision: "" };
-  }
-  return { category: d, precision: "" };
-}
+  };
 
-function isUrgent(deadline: string | null): boolean {
-  if (!deadline) return false;
-  return (new Date(deadline).getTime() - Date.now()) / 86_400_000 <= 1;
-}
+  const handleTextBlur = () => {
+    if (!text.trim()) { onChange(null); setText(""); return; }
+    const parsed = parseDDMM(text);
+    if (parsed) { onChange(parsed); setText(formatDDMM(parsed)); }
+    else        { setText(formatDDMM(value)); }
+  };
 
-function formatDateFR(date: string | null): string {
-  if (!date) return "";
-  const d = new Date(date);
-  return isNaN(d.getTime())
-    ? ""
-    : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
-}
+  const openCalendar = () => {
+    try      { hiddenRef.current?.showPicker(); }
+    catch    { hiddenRef.current?.click();      }
+  };
 
-function getRowBg(color: string, urgent: boolean): string {
-  if (urgent) return "bg-red-50 hover:bg-red-100/60";
-  const c = COLORS.find((c) => c.key === color);
-  return c ? `${c.row} ${c.hover}` : "bg-white hover:bg-slate-50";
-}
-
-const SECTEUR_OPTIONS = [
-  { value: "Impression DTF", label: "Impression DTF",  color: "bg-pink-100 text-pink-700"    },
-  { value: "Gravure",        label: "Gravure",          color: "bg-violet-100 text-violet-700"},
-  { value: "Impression UV",  label: "Impression UV",   color: "bg-cyan-100 text-cyan-700"    },
-  { value: "Autre",          label: "Autre",            color: "bg-slate-100 text-slate-600"  },
-] as const;
-
-// ── Secteur picker ─────────────────────────────────────────────────────────────
-
-function SecteurPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const opt = SECTEUR_OPTIONS.find((o) => o.value === value);
   return (
-    <div className="relative w-full">
-      <div className={cn(
-        "flex items-center h-8 gap-1 px-2.5 rounded-lg border text-[12px] font-medium",
-        "border-slate-100 hover:bg-white hover:border-slate-200 cursor-pointer transition-all duration-100",
-        opt ? opt.color : "bg-white/50 text-slate-400"
-      )}>
-        <span className="truncate flex-1">{opt?.label ?? "—"}</span>
-        <ChevronDown className="h-3 w-3 opacity-50 shrink-0" />
-      </div>
-      <select
-        className="absolute inset-0 opacity-0 cursor-pointer w-full"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+    <div className="flex items-center w-full">
+      <input
+        type="text"
+        value={text}
+        onChange={handleTextChange}
+        onBlur={handleTextBlur}
+        placeholder="JJ/MM"
+        maxLength={10}
+        className={cn(
+          "flex-1 min-w-0 h-8 px-2.5 text-[13px] rounded-lg border bg-transparent",
+          "focus:outline-none focus:ring-2 focus:border-blue-300 focus:ring-blue-100/70 focus:bg-white",
+          "transition-all duration-100 tabular-nums",
+          urgent
+            ? "text-red-600 font-semibold border-transparent hover:border-red-200"
+            : text
+              ? "text-slate-800 border-transparent hover:border-slate-200"
+              : cn(EMPTY_CLS, "border-transparent hover:border-slate-200"),
+        )}
+      />
+      <button
+        onClick={openCalendar}
+        className="flex-shrink-0 p-1.5 rounded-md text-slate-300 hover:text-blue-400 hover:bg-blue-50 transition-colors duration-100"
+        title="Ouvrir le calendrier"
+        type="button"
       >
-        <option value="">—</option>
-        {SECTEUR_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
+        <Calendar className="h-3.5 w-3.5" />
+      </button>
+      {/* Hidden native date input for calendar popover */}
+      <input
+        ref={hiddenRef}
+        type="date"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="absolute opacity-0 pointer-events-none w-0 h-0 overflow-hidden"
+        value={value ? value.split("T")[0] : ""}
+        onChange={(e) => {
+          onChange(e.target.value || null);
+          setText(formatDDMM(e.target.value || null));
+        }}
+      />
     </div>
   );
 }
 
-// ── Composant principal ────────────────────────────────────────────────────────
+// ── Main component ──────────────────────────────────────────────────────────────
 
 export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
   const [editing,     setEditing]     = useState<string | null>(null);
   const [savingIds,   setSavingIds]   = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [search,      setSearch]      = useState("");
+  const [activeTab,   setActiveTab]   = useState<TabKey>("general");
+  // Feature 10: type stored in localStorage (no DB migration needed)
+  const [types, setTypes] = useState<Record<string, ItemType>>(() => {
+    if (typeof window === "undefined") return {};
+    try   { return JSON.parse(localStorage.getItem("planning-item-types") || "{}"); }
+    catch { return {}; }
+  });
   const preEdit = useRef<unknown>(null);
+
+  // ── Sorted base ──────────────────────────────────────────────────────────────
 
   const sorted = useMemo(
     () =>
       !Array.isArray(items)
         ? []
         : [...items].sort((a, b) => (a?.position ?? 0) - (b?.position ?? 0)),
-    [items]
+    [items],
   );
 
-  // ── API persist ───────────────────────────────────────────────────────────────
-
-  const persist = useCallback(
-    async (id: string, patch: Record<string, unknown>) => {
-      setSavingIds((p) => new Set([...p, id]));
-      try {
-        await fetch(`/api/planning/${id}`, {
-          method:  "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body:    JSON.stringify(patch),
-        });
-      } catch (e) {
-        console.error("Planning save failed:", e);
-      } finally {
-        setSavingIds((p) => { const n = new Set(p); n.delete(id); return n; });
-      }
-    },
-    []
+  // Feature 9: Smart sort for Général — HAUTE first, then position
+  const generalSorted = useMemo(
+    () =>
+      [...sorted].sort((a, b) => {
+        const pDiff = PRIORITY_RANK[b.priority] - PRIORITY_RANK[a.priority];
+        return pDiff !== 0 ? pDiff : (a.position ?? 0) - (b.position ?? 0);
+      }),
+    [sorted],
   );
+
+  // Tab items (before search filter)
+  const tabItems = useMemo(() => {
+    const tab = TABS.find((t) => t.key === activeTab);
+    if (!tab?.secteur) return generalSorted;
+    return sorted.filter((i) => i.color === tab.secteur);
+  }, [activeTab, generalSorted, sorted]);
+
+  // Search filter (features 1 + 2)
+  const displayItems = useMemo(() => {
+    if (!search.trim()) return tabItems;
+    const q = search.toLowerCase();
+    return tabItems.filter(
+      (i) =>
+        i.clientName.toLowerCase().includes(q) ||
+        i.designation.toLowerCase().includes(q) ||
+        i.note.toLowerCase().includes(q),
+    );
+  }, [tabItems, search]);
+
+  // Tab counts
+  const tabCounts = useMemo((): Record<TabKey, number> => ({
+    general:        sorted.length,
+    textiles:       sorted.filter((i) => i.color === "Textiles").length,
+    gravure:        sorted.filter((i) => i.color === "Gravure et découpe laser").length,
+    "impression-uv":sorted.filter((i) => i.color === "Impression UV").length,
+    goodies:        sorted.filter((i) => i.color === "Goodies").length,
+  }), [sorted]);
+
+  // ── API helpers ──────────────────────────────────────────────────────────────
+
+  const persist = useCallback(async (id: string, patch: Record<string, unknown>) => {
+    setSavingIds((p) => new Set([...p, id]));
+    try {
+      await fetch(`/api/planning/${id}`, {
+        method:  "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify(patch),
+      });
+    } catch (e) {
+      console.error("Planning save failed:", e);
+    } finally {
+      setSavingIds((p) => { const n = new Set(p); n.delete(id); return n; });
+    }
+  }, []);
 
   const updateItem = useCallback(
-    (id: string, field: string, value: unknown) => {
-      onItemsChange?.(items.map((it) => (it.id === id ? { ...it, [field]: value } : it)));
-    },
-    [items, onItemsChange]
+    (id: string, field: string, value: unknown) =>
+      onItemsChange?.(items.map((it) => (it.id === id ? { ...it, [field]: value } : it))),
+    [items, onItemsChange],
   );
 
   const saveNow = useCallback(
@@ -321,10 +591,10 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
       updateItem(id, field, value);
       persist(id, { [field]: value });
     },
-    [updateItem, persist]
+    [updateItem, persist],
   );
 
-  // ── Click-to-edit ─────────────────────────────────────────────────────────────
+  // ── Edit helpers ─────────────────────────────────────────────────────────────
 
   const startEdit = useCallback((id: string, field: string, currentValue: unknown) => {
     preEdit.current = currentValue;
@@ -333,7 +603,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
 
   const isEditingCell = useCallback(
     (id: string, field: string) => editing === `${id}:${field}`,
-    [editing]
+    [editing],
   );
 
   const handleBlurSave = useCallback(
@@ -341,7 +611,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
       setEditing(null);
       persist(id, { [field]: value });
     },
-    [persist]
+    [persist],
   );
 
   const handleKeyDown = useCallback(
@@ -354,10 +624,20 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
         setEditing(null);
       }
     },
-    [updateItem]
+    [updateItem],
   );
 
-  // ── Ajouter une ligne (en bas) ──────────────────────────────────────────────
+  // ── Type (localStorage) ───────────────────────────────────────────────────────
+
+  const setType = useCallback((id: string, type: ItemType) => {
+    setTypes((prev) => {
+      const next = { ...prev, [id]: type };
+      try { localStorage.setItem("planning-item-types", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, []);
+
+  // ── CRUD ─────────────────────────────────────────────────────────────────────
 
   const addRow = useCallback(() => {
     const newId    = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
@@ -377,8 +657,6 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
     }).catch((e) => console.error("Failed to save new row:", e));
   }, [items, sorted, onItemsChange]);
 
-  // ── Delete ────────────────────────────────────────────────────────────────────
-
   const handleDelete = useCallback(
     async (id: string) => {
       setDeletingIds((p) => new Set([...p, id]));
@@ -393,18 +671,14 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
         setDeletingIds((p) => { const n = new Set(p); n.delete(id); return n; });
       }
     },
-    [items, onItemsChange]
+    [items, onItemsChange],
   );
-
-  // ── Reorder ───────────────────────────────────────────────────────────────────
 
   const handleReorder = useCallback(
     (newOrder: PlanningItem[]) => {
       const reordered = newOrder.map((it, idx) => ({ ...it, position: idx }));
       onItemsChange?.(
-        items
-          .filter((i) => !reordered.some((r) => r.id === i.id))
-          .concat(reordered)
+        items.filter((i) => !reordered.some((r) => r.id === i.id)).concat(reordered),
       );
       Promise.all(
         reordered.map((it) =>
@@ -412,67 +686,86 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
             method:  "PATCH",
             headers: { "Content-Type": "application/json" },
             body:    JSON.stringify({ position: it.position }),
-          })
-        )
+          }),
+        ),
       ).catch(console.error);
     },
-    [items, onItemsChange]
+    [items, onItemsChange],
   );
 
-  // ── Designation handler ────────────────────────────────────────────────────────
-
-  const handleDesignationSelect = useCallback(
-    (id: string, category: string) => {
-      const opt = DESIGNATION_OPTIONS.find((o) => o.value === category);
-      if (opt && "needsPrecision" in opt && opt.needsPrecision) {
-        updateItem(id, "designation", category);
-        setEditing(`${id}:designationPrecision`);
-      } else {
-        saveNow(id, "designation", category);
-        setEditing(null);
-      }
-    },
-    [saveNow, updateItem]
-  );
-
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
     <div
       className="flex flex-col rounded-2xl bg-white border border-slate-100 shadow-sm overflow-hidden"
       style={{
-        fontFamily:          "'Inter', 'Inter Variable', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
+        fontFamily:          "'Inter', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif",
         WebkitFontSmoothing: "antialiased",
       }}
     >
 
-      {/* ── Barre d'outils ──────────────────────────────────────────────────── */}
-      <div className="flex items-center px-4 py-2 border-b border-slate-100">
+      {/* ── Toolbar ────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-100 bg-white">
         <button
           onClick={addRow}
-          className="flex items-center justify-center w-6 h-6 rounded-md bg-blue-500 text-white hover:bg-blue-600 transition-all duration-150"
+          className={cn(
+            "flex items-center justify-center w-7 h-7 rounded-lg",
+            "bg-blue-500 text-white hover:bg-blue-600 active:scale-95",
+            "transition-all duration-150 shadow-sm shadow-blue-200 shrink-0",
+          )}
           aria-label="Ajouter une ligne"
         >
           <Plus className="h-4 w-4" />
         </button>
+        {/* Feature 1: Search bar */}
+        <SearchBar value={search} onChange={setSearch} />
       </div>
 
-      {/* ── Tableau (scroll horizontal) ─────────────────────────────────────── */}
-      <div className="overflow-x-auto">
-        <div className="min-w-[1300px]">
+      {/* ── Tabs (feature 8) ────────────────────────────────────────────────── */}
+      <div className="flex items-end gap-0.5 px-4 border-b border-slate-100 bg-slate-50/50 overflow-x-auto">
+        {TABS.map((tab) => {
+          const active = activeTab === tab.key;
+          const count  = tabCounts[tab.key];
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-2.5 text-[12px] font-medium",
+                "whitespace-nowrap transition-colors duration-150 rounded-t-lg",
+                "border border-b-0",
+                active
+                  ? "text-blue-600 bg-white border-slate-200 shadow-sm"
+                  : "text-slate-500 border-transparent hover:text-slate-700 hover:bg-slate-100/60",
+              )}
+            >
+              {tab.label}
+              {count > 0 && (
+                <span className={cn(
+                  "px-1.5 py-px rounded-full text-[10px] font-semibold",
+                  active ? "bg-blue-50 text-blue-500" : "bg-slate-200/80 text-slate-500",
+                )}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-          {/* En-têtes */}
-          <div
-            className="grid bg-slate-50/70 border-b border-slate-100"
-            style={GRID_STYLE}
-          >
+      {/* ── Table ───────────────────────────────────────────────────────────── */}
+      <div className="overflow-x-auto">
+        <div style={{ minWidth: "1200px" }}>
+
+          {/* Column headers */}
+          <div className="grid bg-slate-50/70 border-b border-slate-100" style={GRID_STYLE}>
             {COL_HEADERS.map(({ label, align }, i) => (
               <div
                 key={i}
                 className={cn(
                   "px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400",
                   align === "center" && "text-center",
-                  align === "right"  && "text-right"
+                  (align as string) === "right" && "text-right",
                 )}
               >
                 {label}
@@ -480,18 +773,21 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
             ))}
           </div>
 
-
-          {/* ── Lignes ───────────────────────────────────────────────────────── */}
-          <Reorder.Group as="div" axis="y" values={sorted} onReorder={handleReorder}>
+          {/* Rows */}
+          <Reorder.Group as="div" axis="y" values={displayItems} onReorder={handleReorder}>
             <AnimatePresence mode="popLayout" initial={false}>
-              {sorted.map((item) => {
+              {displayItems.map((item) => {
                 if (!item?.id) return null;
-                const isDeleting = deletingIds.has(item.id);
-                const isSaving   = savingIds.has(item.id);
-                const total      = item.quantity * item.unitPrice;
-                const urgent     = isUrgent(item.deadline);
-                const { category: desigCategory } = parseDesignation(item.designation);
-                const noteHasLines = item.note.includes("\n");
+                const isDeleting  = deletingIds.has(item.id);
+                const isSaving    = savingIds.has(item.id);
+                const urgent      = isUrgent(item.deadline);
+                const itemType    = (types[item.id] ?? "") as ItemType;
+                const typeConfig  = TYPE_CONFIG[itemType] ?? TYPE_CONFIG[""];
+                const isNoteEdit  = isEditingCell(item.id, "note");
+
+                const rowBg = urgent
+                  ? "bg-red-50 hover:bg-red-100/40"
+                  : "bg-white hover:bg-slate-50/70";
 
                 return (
                   <Reorder.Item key={item.id} value={item} as="div">
@@ -503,42 +799,47 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                       className={cn(
                         "grid w-full border-b border-slate-100 group relative",
                         "transition-colors duration-100",
-                        noteHasLines ? "min-h-[44px]" : "h-[44px]",
-                        getRowBg(item.color ?? "", urgent),
-                        isDeleting && "pointer-events-none"
+                        "border-l-4", typeConfig.border,
+                        isNoteEdit ? "min-h-[44px]" : "h-[44px]",
+                        rowBg,
+                        isDeleting && "pointer-events-none",
                       )}
                       style={GRID_STYLE}
                     >
 
-                      {/* Indicateur de sauvegarde */}
+                      {/* Save indicator */}
                       <AnimatePresence>
                         {isSaving && (
                           <motion.span
-                            key="saving-dot"
+                            key="dot"
                             initial={{ opacity: 0, scale: 0.4 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.4 }}
-                            className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse z-10 pointer-events-none"
+                            className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse z-10 pointer-events-none"
                           />
                         )}
                       </AnimatePresence>
 
-                      {/* 0. Grip handle (drag) */}
+                      {/* 0 · Grip */}
                       <div className="h-full flex items-center justify-center cursor-grab active:cursor-grabbing">
                         <GripVertical className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-400 transition-colors" />
                       </div>
 
-                      {/* 1. Priorité — menu déroulant Apple */}
+                      {/* 1 · Type (feature 10) */}
+                      <div className="h-full flex items-center justify-center px-1">
+                        <TypePicker value={itemType} onChange={(v) => setType(item.id, v)} />
+                      </div>
+
+                      {/* 2 · Priorité */}
                       <div className={CELL_WRAP}>
-                        <div className="relative">
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold cursor-pointer",
-                              "transition-all duration-200 hover:opacity-75 active:scale-95 select-none",
-                              PRIORITY_STYLE[item.priority]
-                            )}
-                          >
-                            {PRIORITY_LABEL[item.priority]}
+                        <div className="relative w-full">
+                          <span className={cn(
+                            "flex items-center justify-center gap-1 h-7 px-2.5 rounded-full",
+                            "text-[11px] font-semibold cursor-pointer select-none w-full",
+                            "transition-all duration-150 hover:opacity-75 active:scale-95",
+                            PRIORITY_CONFIG[item.priority].style,
+                          )}>
+                            {PRIORITY_CONFIG[item.priority].label}
                             <ChevronDown className="h-2.5 w-2.5 opacity-50" />
                           </span>
                           <select
@@ -553,7 +854,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         </div>
                       </div>
 
-                      {/* 2. Client — Nom Prénom */}
+                      {/* 3 · Client */}
                       <div className={CELL_WRAP}>
                         {isEditingCell(item.id, "clientName") ? (
                           <input
@@ -561,7 +862,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                             value={item.clientName}
                             autoFocus
                             onChange={(e) => updateItem(item.id, "clientName", toTitleCase(e.target.value))}
-                            onBlur={(e) => handleBlurSave(item.id, "clientName", toTitleCase(e.target.value))}
+                            onBlur={(e)   => handleBlurSave(item.id, "clientName", toTitleCase(e.target.value))}
                             onKeyDown={(e) => handleKeyDown(e, item.id, "clientName")}
                             className={cn(CELL_INPUT, "font-medium")}
                             placeholder="Nom Prénom"
@@ -569,215 +870,97 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         ) : (
                           <div
                             onClick={() => startEdit(item.id, "clientName", item.clientName)}
-                            className={cn(CELL_DISPLAY, "font-medium", !item.clientName && EMPTY_TEXT)}
+                            className={cn(
+                              "w-full h-8 px-2.5 text-[13px] rounded-lg cursor-text font-medium",
+                              "flex items-center hover:bg-black/[0.03] transition-colors duration-100 select-none truncate",
+                              item.clientName ? "text-slate-800" : EMPTY_CLS,
+                            )}
                           >
                             {item.clientName || "Nom Prénom"}
                           </div>
                         )}
                       </div>
 
-                      {/* 3. Désignation — menu déroulant sélectif */}
+                      {/* 4 · Secteur (feature 7 — juste après Client) */}
                       <div className={CELL_WRAP}>
-                        {isEditingCell(item.id, "designationPrecision") ? (
-                          <input
-                            type="text"
-                            autoFocus
-                            placeholder="Préciser…"
-                            defaultValue={parseDesignation(item.designation).precision}
-                            onBlur={(e) => {
-                              const precision = e.target.value.trim();
-                              const val = precision
-                                ? `${desigCategory}: ${precision}`
-                                : desigCategory;
-                              saveNow(item.id, "designation", val);
-                              setEditing(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === "Tab") {
-                                e.preventDefault();
-                                (e.currentTarget as HTMLElement).blur();
-                              } else if (e.key === "Escape") {
-                                setEditing(null);
-                              }
-                            }}
-                            className={cn(CELL_INPUT, "text-[12px]")}
-                          />
-                        ) : (
-                          <AppleSelect
-                            value={desigCategory}
-                            displayLabel={item.designation || "Choisir…"}
-                            onChange={(v) => handleDesignationSelect(item.id, v)}
-                          >
-                            <option value="" disabled>Choisir…</option>
-                            {DESIGNATION_OPTIONS.map((o) => (
-                              <option key={o.value} value={o.value}>{o.label}</option>
-                            ))}
-                          </AppleSelect>
-                        )}
+                        <SecteurPicker
+                          value={item.color ?? ""}
+                          onChange={(v) => saveNow(item.id, "color", v)}
+                        />
                       </div>
 
-                      {/* 4. Quantité — menu déroulant Apple */}
+                      {/* 5 · Famille (feature 2 — ex Désignation) */}
                       <div className={CELL_WRAP}>
-                        {isEditingCell(item.id, "quantityCustom") ? (
+                        <AppleSelect
+                          value={item.designation}
+                          displayLabel={item.designation || "—"}
+                          onChange={(v) => saveNow(item.id, "designation", v)}
+                        >
+                          <option value="">—</option>
+                          {FAMILLE_OPTIONS.map((f) => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </AppleSelect>
+                      </div>
+
+                      {/* 6 · Quantité — input direct sans flèches (feature 5) */}
+                      <div className={CELL_WRAP}>
+                        {isEditingCell(item.id, "quantity") ? (
                           <input
                             type="number"
                             value={item.quantity}
                             autoFocus
-                            onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value) || 1)}
-                            onBlur={(e) => {
-                              handleBlurSave(item.id, "quantity", parseFloat(e.target.value) || 1);
-                            }}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, "quantity")}
-                            className={cn(CELL_INPUT, "text-center")}
-                            placeholder="1"
                             min="1"
-                          />
-                        ) : (
-                          <AppleSelect
-                            value={QTY_PRESETS.includes(item.quantity) ? String(item.quantity) : "custom"}
-                            displayLabel={String(item.quantity)}
-                            onChange={(v) => {
-                              if (v === "custom") {
-                                preEdit.current = item.quantity;
-                                setEditing(`${item.id}:quantityCustom`);
-                              } else {
-                                saveNow(item.id, "quantity", Number(v));
-                              }
-                            }}
-                          >
-                            {QTY_PRESETS.map((q) => (
-                              <option key={q} value={String(q)}>{q}</option>
-                            ))}
-                            <option value="custom">Autre…</option>
-                          </AppleSelect>
-                        )}
-                      </div>
-
-                      {/* 5. Note — auto-expand */}
-                      <div className={cn(CELL_WRAP, "items-start py-1.5")}>
-                        {isEditingCell(item.id, "note") ? (
-                          <textarea
-                            value={item.note}
-                            autoFocus
-                            rows={Math.max(1, item.note.split("\n").length)}
-                            onChange={(e) => updateItem(item.id, "note", e.target.value)}
-                            onBlur={(e) => handleBlurSave(item.id, "note", e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Tab") {
-                                e.preventDefault();
-                                (e.currentTarget as HTMLElement).blur();
-                              } else if (e.key === "Escape") {
-                                updateItem(item.id, "note", preEdit.current);
-                                setEditing(null);
-                              }
-                            }}
+                            onChange={(e) => updateItem(item.id, "quantity", parseFloat(e.target.value) || 1)}
+                            onBlur={(e)   => handleBlurSave(item.id, "quantity", parseFloat(e.target.value) || 1)}
+                            onKeyDown={(e) => handleKeyDown(e, item.id, "quantity")}
                             className={cn(
-                              "w-full px-2.5 py-1.5 text-[13px] text-slate-900 bg-white rounded-lg",
-                              "border border-blue-300 ring-2 ring-blue-100/70 shadow-sm focus:outline-none",
-                              "italic text-slate-600 resize-none"
+                              CELL_INPUT, "text-center",
+                              "[appearance:textfield]",
+                              "[&::-webkit-outer-spin-button]:appearance-none",
+                              "[&::-webkit-inner-spin-button]:appearance-none",
                             )}
-                            placeholder="Précisions…"
+                            placeholder="1"
                           />
                         ) : (
                           <div
-                            onClick={() => startEdit(item.id, "note", item.note)}
+                            onClick={() => startEdit(item.id, "quantity", item.quantity)}
                             className={cn(
-                              "w-full px-2.5 py-1.5 text-[13px] text-slate-500 rounded-lg cursor-text",
-                              "hover:bg-black/[0.03] active:bg-black/[0.05]",
-                              "transition-colors duration-100 select-none italic",
-                              "whitespace-pre-wrap break-words",
-                              !item.note && EMPTY_TEXT
+                              "w-full h-8 px-2.5 text-[13px] text-slate-800 rounded-lg cursor-text",
+                              "flex items-center justify-center font-semibold tabular-nums",
+                              "hover:bg-black/[0.03] transition-colors duration-100 select-none",
                             )}
                           >
-                            {item.note || "Précisions…"}
+                            {item.quantity}
                           </div>
                         )}
                       </div>
 
-                      {/* 6. Prix unitaire — menu déroulant Apple */}
+                      {/* 7 · Note — truncate + tooltip + expand (feature 3) */}
+                      <div className={cn(
+                        "px-1.5 min-w-0 overflow-visible",
+                        isNoteEdit ? "flex items-start py-1.5" : "flex items-center h-full",
+                      )}>
+                        <NoteCell
+                          note={item.note}
+                          isEditing={isNoteEdit}
+                          onStartEdit={() => startEdit(item.id, "note", item.note)}
+                          onUpdate={(v) => updateItem(item.id, "note", v)}
+                          onBlurSave={(v) => handleBlurSave(item.id, "note", v)}
+                          onCancel={() => { updateItem(item.id, "note", preEdit.current); setEditing(null); }}
+                        />
+                      </div>
+
+                      {/* 8 · Échéance hybride JJ/MM + calendrier (feature 6) */}
                       <div className={CELL_WRAP}>
-                        {isEditingCell(item.id, "unitPriceCustom") ? (
-                          <input
-                            type="number"
-                            value={item.unitPrice || ""}
-                            autoFocus
-                            onChange={(e) => updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)}
-                            onBlur={(e) => {
-                              handleBlurSave(item.id, "unitPrice", parseFloat(e.target.value) || 0);
-                            }}
-                            onKeyDown={(e) => handleKeyDown(e, item.id, "unitPrice")}
-                            className={cn(CELL_INPUT, "text-right")}
-                            placeholder="0"
-                            min="0"
-                            step="0.01"
-                          />
-                        ) : (
-                          <AppleSelect
-                            value={PRICE_PRESETS.includes(item.unitPrice) ? String(item.unitPrice) : "custom"}
-                            displayLabel={item.unitPrice ? `${item.unitPrice.toFixed(2)} €` : "—"}
-                            onChange={(v) => {
-                              if (v === "custom") {
-                                preEdit.current = item.unitPrice;
-                                setEditing(`${item.id}:unitPriceCustom`);
-                              } else {
-                                saveNow(item.id, "unitPrice", Number(v));
-                              }
-                            }}
-                          >
-                            {PRICE_PRESETS.map((p) => (
-                              <option key={p} value={String(p)}>
-                                {p === 0 ? "—" : `${p.toFixed(2)} €`}
-                              </option>
-                            ))}
-                            <option value="custom">Autre…</option>
-                          </AppleSelect>
-                        )}
+                        <HybridDateInput
+                          value={item.deadline}
+                          onChange={(v) => saveNow(item.id, "deadline", v)}
+                          urgent={urgent}
+                        />
                       </div>
 
-                      {/* 7. Total — lecture seule */}
-                      <div
-                        className={cn(
-                          "h-full flex items-center justify-end px-3",
-                          "text-[13px] font-semibold tabular-nums whitespace-nowrap",
-                          total > 0 ? "text-slate-800" : "text-slate-200"
-                        )}
-                      >
-                        {total > 0 ? `${total.toFixed(2)} €` : "—"}
-                      </div>
-
-                      {/* 8. Échéance */}
-                      <div className={CELL_WRAP}>
-                        {isEditingCell(item.id, "deadline") ? (
-                          <input
-                            type="date"
-                            value={item.deadline ? item.deadline.split("T")[0] : ""}
-                            autoFocus
-                            onChange={(e) => updateItem(item.id, "deadline", e.target.value || null)}
-                            onBlur={(e) => handleBlurSave(item.id, "deadline", e.target.value || null)}
-                            onKeyDown={(e) => { if (e.key === "Escape") setEditing(null); }}
-                            className={cn(
-                              "w-full px-2.5 py-[7px] text-[13px] tabular-nums rounded-lg border shadow-sm focus:outline-none focus:ring-2",
-                              urgent
-                                ? "border-red-300 text-red-700 ring-red-100 bg-white"
-                                : "border-blue-300 text-slate-900 ring-blue-100 bg-white"
-                            )}
-                          />
-                        ) : (
-                          <div
-                            onClick={() => startEdit(item.id, "deadline", item.deadline)}
-                            className={cn(
-                              CELL_DISPLAY,
-                              "whitespace-nowrap tabular-nums",
-                              urgent && "text-red-600 font-semibold not-italic",
-                              !item.deadline && EMPTY_TEXT
-                            )}
-                          >
-                            {item.deadline ? formatDateFR(item.deadline) : "—"}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 9. État — réduit */}
+                      {/* 9 · État */}
                       <div className={CELL_WRAP}>
                         <AppleSelect
                           value={item.status}
@@ -790,11 +973,11 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         </AppleSelect>
                       </div>
 
-                      {/* 10. Interne */}
+                      {/* 10 · Interne */}
                       <div className={CELL_WRAP}>
                         <AppleSelect
                           value={item.responsible}
-                          displayLabel={TEAM.find((p) => p.key === item.responsible)?.name || "—"}
+                          displayLabel={TEAM.find((p) => p.key === item.responsible)?.name ?? "—"}
                           onChange={(v) => saveNow(item.id, "responsible", v)}
                           pillStyle="font-medium"
                         >
@@ -805,22 +988,14 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         </AppleSelect>
                       </div>
 
-                      {/* 11. Secteur */}
-                      <div className={CELL_WRAP}>
-                        <SecteurPicker
-                          value={item.color ?? ""}
-                          onChange={(v) => saveNow(item.id, "color", v)}
-                        />
-                      </div>
-
-                      {/* Supprimer */}
+                      {/* 11 · Supprimer */}
                       <div className="h-full flex items-center justify-center">
                         <button
                           onClick={() => handleDelete(item.id)}
                           className={cn(
                             "p-1.5 rounded-md transition-all duration-150",
                             "opacity-0 group-hover:opacity-100",
-                            "text-slate-300 hover:text-red-400 hover:bg-red-50"
+                            "text-slate-300 hover:text-red-400 hover:bg-red-50",
                           )}
                           aria-label="Supprimer"
                         >
@@ -835,6 +1010,27 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
             </AnimatePresence>
           </Reorder.Group>
 
+          {/* Empty state */}
+          {displayItems.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-center select-none">
+              <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center mb-3">
+                <Search className="h-5 w-5 text-slate-200" />
+              </div>
+              <p className="text-[13px] text-slate-400">
+                {search
+                  ? `Aucun résultat pour « ${search} »`
+                  : "Aucune commande dans cette vue"}
+              </p>
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="mt-2 text-[12px] text-blue-500 hover:underline transition-colors"
+                >
+                  Effacer la recherche
+                </button>
+              )}
+            </div>
+          )}
 
         </div>
       </div>
