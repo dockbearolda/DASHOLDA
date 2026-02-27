@@ -157,11 +157,11 @@ const TABS: { key: TabKey; label: string; secteur: string | null }[] = [
   { key: "goodies",       label: "Goodies",            secteur: "Goodies"                   },
 ];
 
-// ── Grid layout (12 columns) ────────────────────────────────────────────────────
-// Grip | Type | Priorité | Client | Secteur | Famille | Qté | Note | Échéance | État | Interne | ×
+// ── Grid layout (11 columns) ────────────────────────────────────────────────────
+// Grip | Type | Priorité | Client | Secteur | Qté | Note | Échéance | État | Interne | ×
 
 const GRID_COLS =
-  "32px 76px 94px 175px 158px 142px 64px minmax(110px,1fr) 132px 172px 108px 40px";
+  "32px 76px 94px 175px 158px 64px minmax(110px,1fr) 150px 172px 108px 40px";
 const GRID_STYLE: CSSProperties = { gridTemplateColumns: GRID_COLS };
 
 const COL_HEADERS = [
@@ -170,7 +170,6 @@ const COL_HEADERS = [
   { label: "Priorité", align: "left"   },
   { label: "Client",   align: "left"   },
   { label: "Secteur",  align: "left"   },
-  { label: "Famille",  align: "left"   },
   { label: "Qté",      align: "center" },
   { label: "Note",     align: "left"   },
   { label: "Échéance", align: "left"   },
@@ -190,17 +189,40 @@ const CELL_WRAP  = "h-full flex items-center px-1.5 overflow-hidden min-w-0";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
-function isUrgent(deadline: string | null): boolean {
-  if (!deadline) return false;
-  return (new Date(deadline).getTime() - Date.now()) / 86_400_000 <= 1;
+/** Parse "YYYY-MM-DD" or "YYYY-MM-DDTHH:…" sans conversion UTC */
+function parseISODate(date: string): { year: number; month: number; day: number } | null {
+  const iso   = date.split("T")[0];
+  const parts = iso.split("-");
+  if (parts.length < 3) return null;
+  const year  = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10);
+  const day   = parseInt(parts[2], 10);
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
+  return { year, month, day };
 }
 
+/** Nombre de jours jusqu'à l'échéance (négatif si dépassée), sans décalage UTC */
+function daysUntil(deadline: string | null): number | null {
+  if (!deadline) return null;
+  const parsed = parseISODate(deadline);
+  if (!parsed) return null;
+  const now      = new Date();
+  const today    = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const target   = new Date(parsed.year, parsed.month - 1, parsed.day).getTime();
+  return Math.round((target - today) / 86_400_000);
+}
+
+function isUrgent(deadline: string | null): boolean {
+  const d = daysUntil(deadline);
+  return d !== null && d <= 1;
+}
+
+/** Affiche "DD/MM" sans passer par UTC — corrige le bug "jour -1" en UTC+x */
 function formatDDMM(date: string | null): string {
   if (!date) return "";
-  const d = new Date(date);
-  return isNaN(d.getTime())
-    ? ""
-    : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" });
+  const parsed = parseISODate(date);
+  if (!parsed) return "";
+  return `${String(parsed.day).padStart(2, "0")}/${String(parsed.month).padStart(2, "0")}`;
 }
 
 function parseDDMM(text: string): string | null {
@@ -215,13 +237,17 @@ function parseDDMM(text: string): string | null {
     year = parseInt(parts[2], 10);
     if (year < 100) year += 2000;
   } else {
-    year = new Date().getFullYear();
-    const candidate = new Date(year, month - 1, day);
-    if (candidate < new Date()) year++;
+    const now   = new Date();
+    year        = now.getFullYear();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (new Date(year, month - 1, day) < today) year++;
   }
-  const d = new Date(year, month - 1, day);
-  if (isNaN(d.getTime())) return null;
-  return d.toISOString().split("T")[0];
+  // Validation (ex: 31/02 → mois incorrect)
+  const check = new Date(year, month - 1, day);
+  if (isNaN(check.getTime()) || check.getMonth() !== month - 1) return null;
+  // Format YYYY-MM-DD sans toISOString() pour éviter le décalage UTC
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${year}-${pad(month)}-${pad(day)}`;
 }
 
 function toTitleCase(s: string): string {
@@ -280,7 +306,7 @@ function TypePicker({ value, onChange }: { value: ItemType; onChange: (v: ItemTy
   );
 }
 
-// Note cell — truncate + tooltip + edit (feature 3)
+// Note cell — expansion verticale au clic, affichage multi-ligne en lecture
 function NoteCell({
   note,
   isEditing,
@@ -297,7 +323,7 @@ function NoteCell({
   onCancel:    () => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const isLong = note.length > 32 || note.includes("\n");
+  const lines       = Math.max(2, note.split("\n").length);
 
   if (isEditing) {
     return (
@@ -305,53 +331,34 @@ function NoteCell({
         ref={textareaRef}
         value={note}
         autoFocus
-        rows={3}
+        rows={lines}
         onChange={(e) => onUpdate(e.target.value)}
-        onBlur={(e) => onBlurSave(e.target.value)}
+        onBlur={(e)   => onBlurSave(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Tab")    { e.preventDefault(); textareaRef.current?.blur(); }
           if (e.key === "Escape") { e.preventDefault(); onCancel(); }
         }}
         className={cn(
-          "w-full px-2.5 py-2 text-[13px] italic text-slate-600 bg-white rounded-xl",
+          "w-full px-2.5 py-1.5 text-[13px] italic text-slate-600 bg-white rounded-xl",
           "border border-blue-300 ring-2 ring-blue-100/70 shadow-lg focus:outline-none resize-none",
-          "z-30 relative",
         )}
         placeholder="Précisions…"
-        style={{ minWidth: "200px" }}
       />
     );
   }
 
+  // Lecture : affiche tout le texte, multi-ligne → agrandit la ligne
   return (
-    <div className="relative group/note w-full">
-      <div
-        onClick={onStartEdit}
-        className={cn(
-          "w-full h-8 px-2.5 text-[13px] rounded-lg cursor-text flex items-center",
-          "hover:bg-black/[0.03] transition-colors duration-100 select-none",
-          note ? "text-slate-500 italic" : EMPTY_CLS,
-        )}
-      >
-        <span className="truncate">{note || "Précisions…"}</span>
-      </div>
-
-      {/* Tooltip on hover for long notes */}
-      {isLong && note && (
-        <div
-          className={cn(
-            "absolute z-50 bottom-full left-0 mb-2 max-w-xs pointer-events-none",
-            "opacity-0 group-hover/note:opacity-100 transition-opacity duration-200 delay-300",
-            "bg-slate-800/95 backdrop-blur-sm text-white text-[12px] rounded-xl",
-            "px-3 py-2.5 shadow-xl whitespace-pre-wrap leading-relaxed",
-          )}
-          style={{ minWidth: "180px" }}
-        >
-          {note}
-          {/* Arrow */}
-          <span className="absolute top-full left-5 border-4 border-transparent border-t-slate-800/95" />
-        </div>
+    <div
+      onClick={onStartEdit}
+      className={cn(
+        "w-full px-2.5 text-[13px] rounded-lg cursor-text leading-snug",
+        "hover:bg-black/[0.03] transition-colors duration-100 select-none",
+        "whitespace-pre-wrap break-words",
+        note ? "text-slate-500 italic" : EMPTY_CLS,
       )}
+    >
+      {note || "Précisions…"}
     </div>
   );
 }
@@ -418,6 +425,14 @@ function AppleSelect({
   );
 }
 
+// Jours restants — chip coloré (feature « jours restants »)
+function DaysChip({ days }: { days: number }) {
+  if (days === 0)  return <span className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100">auj.</span>;
+  if (days === 1)  return <span className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-bold bg-orange-50 text-orange-600 border border-orange-100">dem.</span>;
+  if (days > 0)    return <span className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-semibold bg-blue-50 text-blue-500 border border-blue-100">+{days}j</span>;
+  /* dépassée */   return <span className="shrink-0 px-1.5 py-px rounded-full text-[10px] font-bold bg-red-50 text-red-500 border border-red-100">{days}j</span>;
+}
+
 // Hybrid date input — text JJ/MM + calendar icon (feature 6)
 function HybridDateInput({
   value, onChange, urgent,
@@ -426,8 +441,9 @@ function HybridDateInput({
   onChange: (v: string | null) => void;
   urgent:   boolean;
 }) {
-  const [text, setText]   = useState(formatDDMM(value));
-  const hiddenRef         = useRef<HTMLInputElement>(null);
+  const [text, setText]     = useState(formatDDMM(value));
+  const [focused, setFocus] = useState(false);
+  const hiddenRef           = useRef<HTMLInputElement>(null);
 
   // Sync text when external value changes
   useEffect(() => { setText(formatDDMM(value)); }, [value]);
@@ -435,7 +451,7 @@ function HybridDateInput({
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
     setText(raw);
-    // Auto-parse when length matches DD/MM (5 chars)
+    // Auto-parse dès que le format DD/MM est complet
     if (raw.length >= 5) {
       const parsed = parseDDMM(raw);
       if (parsed) onChange(parsed);
@@ -443,6 +459,7 @@ function HybridDateInput({
   };
 
   const handleTextBlur = () => {
+    setFocus(false);
     if (!text.trim()) { onChange(null); setText(""); return; }
     const parsed = parseDDMM(text);
     if (parsed) { onChange(parsed); setText(formatDDMM(parsed)); }
@@ -450,21 +467,24 @@ function HybridDateInput({
   };
 
   const openCalendar = () => {
-    try      { hiddenRef.current?.showPicker(); }
-    catch    { hiddenRef.current?.click();      }
+    try   { hiddenRef.current?.showPicker(); }
+    catch { hiddenRef.current?.click();      }
   };
 
+  const days = daysUntil(value);
+
   return (
-    <div className="flex items-center w-full">
+    <div className="flex items-center gap-1 w-full">
       <input
         type="text"
         value={text}
         onChange={handleTextChange}
+        onFocus={() => setFocus(true)}
         onBlur={handleTextBlur}
         placeholder="JJ/MM"
         maxLength={10}
         className={cn(
-          "flex-1 min-w-0 h-8 px-2.5 text-[13px] rounded-lg border bg-transparent",
+          "w-[54px] shrink-0 h-8 px-2 text-[13px] rounded-lg border bg-transparent",
           "focus:outline-none focus:ring-2 focus:border-blue-300 focus:ring-blue-100/70 focus:bg-white",
           "transition-all duration-100 tabular-nums",
           urgent
@@ -474,9 +494,13 @@ function HybridDateInput({
               : cn(EMPTY_CLS, "border-transparent hover:border-slate-200"),
         )}
       />
+      {/* Jours restants — visible quand non focalisé et date définie */}
+      {!focused && days !== null && (
+        <DaysChip days={days} />
+      )}
       <button
         onClick={openCalendar}
-        className="flex-shrink-0 p-1.5 rounded-md text-slate-300 hover:text-blue-400 hover:bg-blue-50 transition-colors duration-100"
+        className="ml-auto shrink-0 p-1 rounded-md text-slate-300 hover:text-blue-400 hover:bg-blue-50 transition-colors duration-100"
         title="Ouvrir le calendrier"
         type="button"
       >
@@ -800,7 +824,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         "grid w-full border-b border-slate-100 group relative",
                         "transition-colors duration-100",
                         "border-l-4", typeConfig.border,
-                        isNoteEdit ? "min-h-[44px]" : "h-[44px]",
+                        "min-h-[44px]",
                         rowBg,
                         isDeleting && "pointer-events-none",
                       )}
@@ -889,21 +913,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         />
                       </div>
 
-                      {/* 5 · Famille (feature 2 — ex Désignation) */}
-                      <div className={CELL_WRAP}>
-                        <AppleSelect
-                          value={item.designation}
-                          displayLabel={item.designation || "—"}
-                          onChange={(v) => saveNow(item.id, "designation", v)}
-                        >
-                          <option value="">—</option>
-                          {FAMILLE_OPTIONS.map((f) => (
-                            <option key={f} value={f}>{f}</option>
-                          ))}
-                        </AppleSelect>
-                      </div>
-
-                      {/* 6 · Quantité — input direct sans flèches (feature 5) */}
+                      {/* 5 · Quantité — input direct sans flèches (feature 5) */}
                       <div className={CELL_WRAP}>
                         {isEditingCell(item.id, "quantity") ? (
                           <input
@@ -936,11 +946,8 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         )}
                       </div>
 
-                      {/* 7 · Note — truncate + tooltip + expand (feature 3) */}
-                      <div className={cn(
-                        "px-1.5 min-w-0 overflow-visible",
-                        isNoteEdit ? "flex items-start py-1.5" : "flex items-center h-full",
-                      )}>
+                      {/* 6 · Note — multi-ligne → agrandit la ligne verticalement */}
+                      <div className="px-1.5 py-[13px] min-w-0 overflow-visible">
                         <NoteCell
                           note={item.note}
                           isEditing={isNoteEdit}
@@ -951,7 +958,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         />
                       </div>
 
-                      {/* 8 · Échéance hybride JJ/MM + calendrier (feature 6) */}
+                      {/* 7 · Échéance hybride JJ/MM + calendrier (feature 6) */}
                       <div className={CELL_WRAP}>
                         <HybridDateInput
                           value={item.deadline}
@@ -960,7 +967,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         />
                       </div>
 
-                      {/* 9 · État */}
+                      {/* 8 · État */}
                       <div className={CELL_WRAP}>
                         <AppleSelect
                           value={item.status}
@@ -973,7 +980,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         </AppleSelect>
                       </div>
 
-                      {/* 10 · Interne */}
+                      {/* 9 · Interne */}
                       <div className={CELL_WRAP}>
                         <AppleSelect
                           value={item.responsible}
@@ -988,7 +995,7 @@ export function PlanningTable({ items, onItemsChange }: PlanningTableProps) {
                         </AppleSelect>
                       </div>
 
-                      {/* 11 · Supprimer */}
+                      {/* 10 · Supprimer */}
                       <div className="h-full flex items-center justify-center">
                         <button
                           onClick={() => handleDelete(item.id)}
