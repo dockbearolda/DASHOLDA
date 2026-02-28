@@ -1459,36 +1459,29 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
 
                       {/* 10 · Supprimer (2 clics pour confirmer) */}
                       <div className="h-full flex items-center justify-center">
-                        {confirmDeleteId === item.id ? (
-                          <button
-                            onClick={() => {
+                        <button
+                          onClick={() => {
+                            if (confirmDeleteId === item.id) {
                               if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
                               setConfirmDeleteId(null);
                               handleDelete(item.id);
-                            }}
-                            className="flex items-center gap-1 px-1.5 py-1 rounded-md bg-red-500 text-white text-[10px] font-bold transition-colors duration-100 hover:bg-red-600"
-                            aria-label="Confirmer suppression"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Supprimer ?
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => {
+                            } else {
                               setConfirmDeleteId(item.id);
                               if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
                               confirmDeleteTimer.current = setTimeout(() => setConfirmDeleteId(null), 3000);
-                            }}
-                            className={cn(
-                              "p-1.5 rounded-md transition-[background-color,color] duration-150",
-                              "opacity-0 group-hover:opacity-100",
-                              "text-slate-300 hover:text-red-400 hover:bg-red-50",
-                            )}
-                            aria-label="Supprimer"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                            }
+                          }}
+                          className={cn(
+                            "p-1.5 rounded-md transition-[color,box-shadow] duration-150",
+                            "opacity-0 group-hover:opacity-100",
+                            confirmDeleteId === item.id
+                              ? "text-red-500 ring-1 ring-red-300"
+                              : "text-slate-300 hover:text-red-400",
+                          )}
+                          aria-label="Supprimer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
                       </div>
 
                     </div>
