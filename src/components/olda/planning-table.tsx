@@ -22,6 +22,7 @@ import {
 import {
   Trash2, Plus, ChevronDown, GripVertical, Search, Calendar, X, User,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useSocket } from "@/hooks/useSocket";
 
@@ -703,9 +704,11 @@ function ClientNameCell({
 // ── Main component ──────────────────────────────────────────────────────────────
 
 export function PlanningTable({ items, onItemsChange, onEditingChange }: PlanningTableProps) {
-  const [editing,     setEditing]     = useState<string | null>(null);
-  const [savingIds,   setSavingIds]   = useState<Set<string>>(new Set());
-  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [editing,         setEditing]         = useState<string | null>(null);
+  const [savingIds,       setSavingIds]       = useState<Set<string>>(new Set());
+  const [deletingIds,     setDeletingIds]     = useState<Set<string>>(new Set());
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ref vers l'état d'édition courant, accessible dans les handlers socket/polling
   const editingRef = useRef(editing);
@@ -791,14 +794,17 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
     );
   }, [tabItems, search, filterPerson]);
 
-  // Tab counts
-  const tabCounts = useMemo((): Record<TabKey, number> => ({
-    general:        sorted.length,
-    textiles:       sorted.filter((i) => i.color === "Textiles").length,
-    gravure:        sorted.filter((i) => i.color === "Gravure et découpe laser").length,
-    "impression-uv":sorted.filter((i) => i.color === "Impression UV").length,
-    goodies:        sorted.filter((i) => i.color === "Goodies").length,
-  }), [sorted]);
+  // Tab counts — filtré par personne si un filtre est actif
+  const tabCounts = useMemo((): Record<TabKey, number> => {
+    const base = filterPerson ? sorted.filter((i) => i.responsible === filterPerson) : sorted;
+    return {
+      general:         base.length,
+      textiles:        base.filter((i) => i.color === "Textiles").length,
+      gravure:         base.filter((i) => i.color === "Gravure et découpe laser").length,
+      "impression-uv": base.filter((i) => i.color === "Impression UV").length,
+      goodies:         base.filter((i) => i.color === "Goodies").length,
+    };
+  }, [sorted, filterPerson]);
 
   // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -877,13 +883,19 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
   // ── CRUD ─────────────────────────────────────────────────────────────────────
 
   const addRow = useCallback(() => {
-    const newId    = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-    const maxPos   = sorted.length > 0 ? Math.max(...sorted.map((s) => s.position)) : 0;
-    const position = maxPos + 1;
+    const newId  = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    // Insérer EN HAUT : position = minPos - 1 (ou -1 si liste vide)
+    const minPos   = sorted.length > 0 ? Math.min(...sorted.map((s) => s.position)) : 0;
+    const position = minPos - 1;
+    // Pré-remplir l'onglet actif et la personne filtrée
+    const tab     = TABS.find((t) => t.key === activeTab);
     const newItem: PlanningItem = {
       id: newId, priority: "MOYENNE", clientName: "", clientId: null, quantity: 1,
       designation: "", note: "", unitPrice: 0, deadline: null,
-      status: "A_DEVISER", responsible: "", color: "", position,
+      status: "A_DEVISER",
+      responsible: filterPerson || "",
+      color: tab?.secteur ?? "",
+      position,
     };
     onItemsChange?.([...items, newItem]);
     setEditing(`${newId}:clientName`);
@@ -892,7 +904,7 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ ...newItem, deadline: null }),
     }).catch((e) => console.error("Failed to save new row:", e));
-  }, [items, sorted, onItemsChange]);
+  }, [items, sorted, activeTab, filterPerson, onItemsChange]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -930,39 +942,49 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
     [items, onItemsChange],
   );
 
-  // ── HTML5 Drag-to-reorder (remplace Framer Motion Reorder) ──────────────────
-  // Aucune animation JS : le browser gère le ghost nativement → 0 layout reflow
+  // ── Drag-to-reorder fluide (indicateur de position + animation layout) ────────
 
-  const dragIdRef   = useRef<string | null>(null);
-  const dragOverRef = useRef<string | null>(null);
+  const [dragId,     setDragId]     = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; pos: "before" | "after" } | null>(null);
+  const dragIdRef = useRef<string | null>(null);
 
-  const onDragStart = useCallback((id: string) => {
+  const onDragStart = useCallback((e: React.DragEvent, id: string) => {
     dragIdRef.current = id;
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
   }, []);
 
   const onDragOver = useCallback((e: React.DragEvent, id: string) => {
     e.preventDefault();
-    dragOverRef.current = id;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const pos  = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    setDropTarget((prev) =>
+      prev?.id === id && prev.pos === pos ? prev : { id, pos }
+    );
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     const fromId = dragIdRef.current;
-    dragIdRef.current  = null;
-    dragOverRef.current = null;
+    const pos    = dropTarget?.pos ?? "after";
+    dragIdRef.current = null;
+    setDragId(null);
+    setDropTarget(null);
     if (!fromId || fromId === targetId) return;
     const fromIdx = displayItems.findIndex((i) => i.id === fromId);
-    const toIdx   = displayItems.findIndex((i) => i.id === targetId);
-    if (fromIdx === -1 || toIdx === -1) return;
+    if (fromIdx === -1) return;
     const newOrder = [...displayItems];
     const [moved]  = newOrder.splice(fromIdx, 1);
-    newOrder.splice(toIdx, 0, moved);
+    const targetIdx = newOrder.findIndex((i) => i.id === targetId);
+    if (targetIdx === -1) return;
+    newOrder.splice(pos === "before" ? targetIdx : targetIdx + 1, 0, moved);
     handleReorder(newOrder);
-  }, [displayItems, handleReorder]);
+  }, [displayItems, handleReorder, dropTarget]);
 
   const onDragEnd = useCallback(() => {
-    dragIdRef.current   = null;
-    dragOverRef.current = null;
+    dragIdRef.current = null;
+    setDragId(null);
+    setDropTarget(null);
   }, []);
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -1066,8 +1088,12 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
             ))}
           </div>
 
-          {/* Rows — HTML5 drag natif, zéro Framer Motion sur les lignes */}
-          <div>
+          {/* Rows — layout animé + indicateur de position fluide */}
+          <div
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null);
+            }}
+          >
               {displayItems.map((item) => {
                 if (!item?.id) return null;
                 const isDeleting  = deletingIds.has(item.id);
@@ -1078,16 +1104,48 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                 const rowBg = urgent
                   ? "bg-red-50 hover:bg-red-100/40"
                   : "bg-white hover:bg-slate-50/70";
+                const isDragging = dragId === item.id;
+                const isTarget   = dropTarget?.id === item.id;
 
                 return (
-                  <div
+                  <motion.div
                     key={item.id}
+                    layout
+                    transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
                     draggable
-                    onDragStart={() => onDragStart(item.id)}
-                    onDragOver={(e) => onDragOver(e, item.id)}
-                    onDrop={(e) => onDrop(e, item.id)}
+                    onDragStart={(e) => onDragStart(e as unknown as React.DragEvent, item.id)}
+                    onDragOver={(e) => onDragOver(e as unknown as React.DragEvent, item.id)}
+                    onDrop={(e) => onDrop(e as unknown as React.DragEvent, item.id)}
                     onDragEnd={onDragEnd}
+                    className="relative"
+                    style={{ opacity: isDragging ? 0.38 : 1 }}
                   >
+                    {/* Ligne indicatrice de dépôt — avant */}
+                    <AnimatePresence>
+                      {isTarget && dropTarget?.pos === "before" && (
+                        <motion.div
+                          layoutId="dnd-drop-line"
+                          className="absolute top-0 left-0 right-0 h-[2.5px] rounded-full bg-blue-500 z-20 pointer-events-none"
+                          initial={{ opacity: 0, scaleX: 0.6 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                        />
+                      )}
+                    </AnimatePresence>
+                    {/* Ligne indicatrice de dépôt — après */}
+                    <AnimatePresence>
+                      {isTarget && dropTarget?.pos === "after" && (
+                        <motion.div
+                          layoutId="dnd-drop-line"
+                          className="absolute bottom-0 left-0 right-0 h-[2.5px] rounded-full bg-blue-500 z-20 pointer-events-none"
+                          initial={{ opacity: 0, scaleX: 0.6 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                        />
+                      )}
+                    </AnimatePresence>
                     <div
                       className={cn(
                         "grid w-full border-b border-slate-100 group relative",
@@ -1284,23 +1342,42 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                         </div>
                       </div>
 
-                      {/* 10 · Supprimer */}
+                      {/* 10 · Supprimer (2 clics pour confirmer) */}
                       <div className="h-full flex items-center justify-center">
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className={cn(
-                            "p-1.5 rounded-md transition-[background-color,color] duration-150",
-                            "opacity-0 group-hover:opacity-100",
-                            "text-slate-300 hover:text-red-400 hover:bg-red-50",
-                          )}
-                          aria-label="Supprimer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {confirmDeleteId === item.id ? (
+                          <button
+                            onClick={() => {
+                              if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+                              setConfirmDeleteId(null);
+                              handleDelete(item.id);
+                            }}
+                            className="flex items-center gap-1 px-1.5 py-1 rounded-md bg-red-500 text-white text-[10px] font-bold transition-colors duration-100 hover:bg-red-600"
+                            aria-label="Confirmer suppression"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Supprimer ?
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setConfirmDeleteId(item.id);
+                              if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+                              confirmDeleteTimer.current = setTimeout(() => setConfirmDeleteId(null), 3000);
+                            }}
+                            className={cn(
+                              "p-1.5 rounded-md transition-[background-color,color] duration-150",
+                              "opacity-0 group-hover:opacity-100",
+                              "text-slate-300 hover:text-red-400 hover:bg-red-50",
+                            )}
+                            aria-label="Supprimer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
 
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
           </div>
