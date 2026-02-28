@@ -704,9 +704,11 @@ function ClientNameCell({
 // ── Main component ──────────────────────────────────────────────────────────────
 
 export function PlanningTable({ items, onItemsChange, onEditingChange }: PlanningTableProps) {
-  const [editing,     setEditing]     = useState<string | null>(null);
-  const [savingIds,   setSavingIds]   = useState<Set<string>>(new Set());
-  const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
+  const [editing,         setEditing]         = useState<string | null>(null);
+  const [savingIds,       setSavingIds]       = useState<Set<string>>(new Set());
+  const [deletingIds,     setDeletingIds]     = useState<Set<string>>(new Set());
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const confirmDeleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Ref vers l'état d'édition courant, accessible dans les handlers socket/polling
   const editingRef = useRef(editing);
@@ -792,14 +794,17 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
     );
   }, [tabItems, search, filterPerson]);
 
-  // Tab counts
-  const tabCounts = useMemo((): Record<TabKey, number> => ({
-    general:        sorted.length,
-    textiles:       sorted.filter((i) => i.color === "Textiles").length,
-    gravure:        sorted.filter((i) => i.color === "Gravure et découpe laser").length,
-    "impression-uv":sorted.filter((i) => i.color === "Impression UV").length,
-    goodies:        sorted.filter((i) => i.color === "Goodies").length,
-  }), [sorted]);
+  // Tab counts — filtré par personne si un filtre est actif
+  const tabCounts = useMemo((): Record<TabKey, number> => {
+    const base = filterPerson ? sorted.filter((i) => i.responsible === filterPerson) : sorted;
+    return {
+      general:         base.length,
+      textiles:        base.filter((i) => i.color === "Textiles").length,
+      gravure:         base.filter((i) => i.color === "Gravure et découpe laser").length,
+      "impression-uv": base.filter((i) => i.color === "Impression UV").length,
+      goodies:         base.filter((i) => i.color === "Goodies").length,
+    };
+  }, [sorted, filterPerson]);
 
   // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -878,13 +883,19 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
   // ── CRUD ─────────────────────────────────────────────────────────────────────
 
   const addRow = useCallback(() => {
-    const newId    = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
-    const maxPos   = sorted.length > 0 ? Math.max(...sorted.map((s) => s.position)) : 0;
-    const position = maxPos + 1;
+    const newId  = `r${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    // Insérer EN HAUT : position = minPos - 1 (ou -1 si liste vide)
+    const minPos   = sorted.length > 0 ? Math.min(...sorted.map((s) => s.position)) : 0;
+    const position = minPos - 1;
+    // Pré-remplir l'onglet actif et la personne filtrée
+    const tab     = TABS.find((t) => t.key === activeTab);
     const newItem: PlanningItem = {
       id: newId, priority: "MOYENNE", clientName: "", clientId: null, quantity: 1,
       designation: "", note: "", unitPrice: 0, deadline: null,
-      status: "A_DEVISER", responsible: "", color: "", position,
+      status: "A_DEVISER",
+      responsible: filterPerson || "",
+      color: tab?.secteur ?? "",
+      position,
     };
     onItemsChange?.([...items, newItem]);
     setEditing(`${newId}:clientName`);
@@ -893,7 +904,7 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ ...newItem, deadline: null }),
     }).catch((e) => console.error("Failed to save new row:", e));
-  }, [items, sorted, onItemsChange]);
+  }, [items, sorted, activeTab, filterPerson, onItemsChange]);
 
   const handleDelete = useCallback(
     async (id: string) => {
@@ -1331,19 +1342,38 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                         </div>
                       </div>
 
-                      {/* 10 · Supprimer */}
+                      {/* 10 · Supprimer (2 clics pour confirmer) */}
                       <div className="h-full flex items-center justify-center">
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className={cn(
-                            "p-1.5 rounded-md transition-[background-color,color] duration-150",
-                            "opacity-0 group-hover:opacity-100",
-                            "text-slate-300 hover:text-red-400 hover:bg-red-50",
-                          )}
-                          aria-label="Supprimer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {confirmDeleteId === item.id ? (
+                          <button
+                            onClick={() => {
+                              if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+                              setConfirmDeleteId(null);
+                              handleDelete(item.id);
+                            }}
+                            className="flex items-center gap-1 px-1.5 py-1 rounded-md bg-red-500 text-white text-[10px] font-bold transition-colors duration-100 hover:bg-red-600"
+                            aria-label="Confirmer suppression"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Supprimer ?
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setConfirmDeleteId(item.id);
+                              if (confirmDeleteTimer.current) clearTimeout(confirmDeleteTimer.current);
+                              confirmDeleteTimer.current = setTimeout(() => setConfirmDeleteId(null), 3000);
+                            }}
+                            className={cn(
+                              "p-1.5 rounded-md transition-[background-color,color] duration-150",
+                              "opacity-0 group-hover:opacity-100",
+                              "text-slate-300 hover:text-red-400 hover:bg-red-50",
+                            )}
+                            aria-label="Supprimer"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
 
                     </div>
