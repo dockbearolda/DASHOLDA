@@ -22,6 +22,7 @@ import {
 import {
   Trash2, Plus, ChevronDown, GripVertical, Search, Calendar, X, User,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useSocket } from "@/hooks/useSocket";
 
@@ -930,39 +931,49 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
     [items, onItemsChange],
   );
 
-  // ── HTML5 Drag-to-reorder (remplace Framer Motion Reorder) ──────────────────
-  // Aucune animation JS : le browser gère le ghost nativement → 0 layout reflow
+  // ── Drag-to-reorder fluide (indicateur de position + animation layout) ────────
 
-  const dragIdRef   = useRef<string | null>(null);
-  const dragOverRef = useRef<string | null>(null);
+  const [dragId,     setDragId]     = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; pos: "before" | "after" } | null>(null);
+  const dragIdRef = useRef<string | null>(null);
 
-  const onDragStart = useCallback((id: string) => {
+  const onDragStart = useCallback((e: React.DragEvent, id: string) => {
     dragIdRef.current = id;
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
   }, []);
 
   const onDragOver = useCallback((e: React.DragEvent, id: string) => {
     e.preventDefault();
-    dragOverRef.current = id;
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const pos  = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+    setDropTarget((prev) =>
+      prev?.id === id && prev.pos === pos ? prev : { id, pos }
+    );
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     const fromId = dragIdRef.current;
-    dragIdRef.current  = null;
-    dragOverRef.current = null;
+    const pos    = dropTarget?.pos ?? "after";
+    dragIdRef.current = null;
+    setDragId(null);
+    setDropTarget(null);
     if (!fromId || fromId === targetId) return;
     const fromIdx = displayItems.findIndex((i) => i.id === fromId);
-    const toIdx   = displayItems.findIndex((i) => i.id === targetId);
-    if (fromIdx === -1 || toIdx === -1) return;
+    if (fromIdx === -1) return;
     const newOrder = [...displayItems];
     const [moved]  = newOrder.splice(fromIdx, 1);
-    newOrder.splice(toIdx, 0, moved);
+    const targetIdx = newOrder.findIndex((i) => i.id === targetId);
+    if (targetIdx === -1) return;
+    newOrder.splice(pos === "before" ? targetIdx : targetIdx + 1, 0, moved);
     handleReorder(newOrder);
-  }, [displayItems, handleReorder]);
+  }, [displayItems, handleReorder, dropTarget]);
 
   const onDragEnd = useCallback(() => {
-    dragIdRef.current   = null;
-    dragOverRef.current = null;
+    dragIdRef.current = null;
+    setDragId(null);
+    setDropTarget(null);
   }, []);
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -1066,8 +1077,12 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
             ))}
           </div>
 
-          {/* Rows — HTML5 drag natif, zéro Framer Motion sur les lignes */}
-          <div>
+          {/* Rows — layout animé + indicateur de position fluide */}
+          <div
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDropTarget(null);
+            }}
+          >
               {displayItems.map((item) => {
                 if (!item?.id) return null;
                 const isDeleting  = deletingIds.has(item.id);
@@ -1078,16 +1093,48 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                 const rowBg = urgent
                   ? "bg-red-50 hover:bg-red-100/40"
                   : "bg-white hover:bg-slate-50/70";
+                const isDragging = dragId === item.id;
+                const isTarget   = dropTarget?.id === item.id;
 
                 return (
-                  <div
+                  <motion.div
                     key={item.id}
+                    layout
+                    transition={{ type: "spring", stiffness: 400, damping: 38, mass: 0.85 }}
                     draggable
-                    onDragStart={() => onDragStart(item.id)}
-                    onDragOver={(e) => onDragOver(e, item.id)}
-                    onDrop={(e) => onDrop(e, item.id)}
+                    onDragStart={(e) => onDragStart(e as unknown as React.DragEvent, item.id)}
+                    onDragOver={(e) => onDragOver(e as unknown as React.DragEvent, item.id)}
+                    onDrop={(e) => onDrop(e as unknown as React.DragEvent, item.id)}
                     onDragEnd={onDragEnd}
+                    className="relative"
+                    style={{ opacity: isDragging ? 0.38 : 1 }}
                   >
+                    {/* Ligne indicatrice de dépôt — avant */}
+                    <AnimatePresence>
+                      {isTarget && dropTarget?.pos === "before" && (
+                        <motion.div
+                          layoutId="dnd-drop-line"
+                          className="absolute top-0 left-0 right-0 h-[2.5px] rounded-full bg-blue-500 z-20 pointer-events-none"
+                          initial={{ opacity: 0, scaleX: 0.6 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                        />
+                      )}
+                    </AnimatePresence>
+                    {/* Ligne indicatrice de dépôt — après */}
+                    <AnimatePresence>
+                      {isTarget && dropTarget?.pos === "after" && (
+                        <motion.div
+                          layoutId="dnd-drop-line"
+                          className="absolute bottom-0 left-0 right-0 h-[2.5px] rounded-full bg-blue-500 z-20 pointer-events-none"
+                          initial={{ opacity: 0, scaleX: 0.6 }}
+                          animate={{ opacity: 1, scaleX: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                        />
+                      )}
+                    </AnimatePresence>
                     <div
                       className={cn(
                         "grid w-full border-b border-slate-100 group relative",
@@ -1300,7 +1347,7 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                       </div>
 
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
           </div>
