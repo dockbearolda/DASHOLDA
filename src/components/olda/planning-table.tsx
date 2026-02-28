@@ -1403,23 +1403,24 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                         )}
                       </div>
 
-                      {/* 6 · Note — input toujours visible */}
-                      <div className={CELL_WRAP}>
-                        <input
-                          type="text"
+                      {/* 6 · Note — textarea auto-expand, toutes les notes visibles */}
+                      <div className="py-1 px-1.5 min-w-0 flex items-start">
+                        <textarea
                           value={item.note}
                           onChange={(e) => updateItem(item.id, "note", e.target.value)}
                           onFocus={() => startEdit(item.id, "note", item.note)}
                           onBlur={(e) => handleBlurSave(item.id, "note", e.target.value)}
                           onKeyDown={(e) => handleKeyDown(e, item.id, "note")}
                           placeholder="Note…"
+                          rows={1}
                           className={cn(
-                            "w-full h-8 px-2 text-[12px] italic bg-transparent rounded-lg",
+                            "w-full px-2 py-1 text-[12px] italic bg-transparent rounded-lg resize-none overflow-hidden leading-snug",
                             "border border-transparent hover:border-slate-200",
                             "focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100/70 focus:outline-none",
                             "transition-[border-color,background-color,box-shadow] duration-100 placeholder:text-slate-300",
                             item.note ? "text-slate-500" : "text-slate-300",
                           )}
+                          style={{ fieldSizing: "content", minHeight: "2rem" } as React.CSSProperties}
                         />
                       </div>
 
