@@ -19,7 +19,6 @@
 import {
   useState, useCallback, useMemo, useRef, useEffect, type CSSProperties,
 } from "react";
-import { motion, Reorder, AnimatePresence } from "framer-motion";
 import {
   Trash2, Plus, ChevronDown, GripVertical, Search, Calendar, X, User,
 } from "lucide-react";
@@ -931,6 +930,41 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
     [items, onItemsChange],
   );
 
+  // ── HTML5 Drag-to-reorder (remplace Framer Motion Reorder) ──────────────────
+  // Aucune animation JS : le browser gère le ghost nativement → 0 layout reflow
+
+  const dragIdRef   = useRef<string | null>(null);
+  const dragOverRef = useRef<string | null>(null);
+
+  const onDragStart = useCallback((id: string) => {
+    dragIdRef.current = id;
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    dragOverRef.current = id;
+  }, []);
+
+  const onDrop = useCallback((e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    const fromId = dragIdRef.current;
+    dragIdRef.current  = null;
+    dragOverRef.current = null;
+    if (!fromId || fromId === targetId) return;
+    const fromIdx = displayItems.findIndex((i) => i.id === fromId);
+    const toIdx   = displayItems.findIndex((i) => i.id === targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const newOrder = [...displayItems];
+    const [moved]  = newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, moved);
+    handleReorder(newOrder);
+  }, [displayItems, handleReorder]);
+
+  const onDragEnd = useCallback(() => {
+    dragIdRef.current   = null;
+    dragOverRef.current = null;
+  }, []);
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -1032,9 +1066,8 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
             ))}
           </div>
 
-          {/* Rows */}
-          <Reorder.Group as="div" axis="y" values={displayItems} onReorder={handleReorder}>
-            <AnimatePresence initial={false}>
+          {/* Rows — HTML5 drag natif, zéro Framer Motion sur les lignes */}
+          <div>
               {displayItems.map((item) => {
                 if (!item?.id) return null;
                 const isDeleting  = deletingIds.has(item.id);
@@ -1047,12 +1080,15 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                   : "bg-white hover:bg-slate-50/70";
 
                 return (
-                  <Reorder.Item key={item.id} value={item} as="div">
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: isDeleting ? 0.25 : 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.1, ease: "easeOut" }}
+                  <div
+                    key={item.id}
+                    draggable
+                    onDragStart={() => onDragStart(item.id)}
+                    onDragOver={(e) => onDragOver(e, item.id)}
+                    onDrop={(e) => onDrop(e, item.id)}
+                    onDragEnd={onDragEnd}
+                  >
+                    <div
                       className={cn(
                         "grid w-full border-b border-slate-100 group relative",
                         "transition-colors duration-100",
@@ -1061,21 +1097,17 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                         rowBg,
                         isDeleting && "pointer-events-none",
                       )}
-                      style={GRID_STYLE}
+                      style={{
+                        ...GRID_STYLE,
+                        opacity: isDeleting ? 0.25 : 1,
+                        transition: "opacity 0.1s, background-color 0.1s",
+                      }}
                     >
 
-                      {/* Save indicator */}
-                      <AnimatePresence>
-                        {isSaving && (
-                          <motion.span
-                            key="dot"
-                            initial={{ opacity: 0, scale: 0.4 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.4 }}
-                            className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse z-10 pointer-events-none"
-                          />
-                        )}
-                      </AnimatePresence>
+                      {/* Save indicator — CSS pur, aucun JS d'animation */}
+                      {isSaving && (
+                        <span className="absolute left-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse z-10 pointer-events-none" />
+                      )}
 
                       {/* 0 · Grip */}
                       <div className="h-full flex items-center justify-center cursor-grab active:cursor-grabbing">
@@ -1267,12 +1299,11 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                         </button>
                       </div>
 
-                    </motion.div>
-                  </Reorder.Item>
+                    </div>
+                  </div>
                 );
               })}
-            </AnimatePresence>
-          </Reorder.Group>
+          </div>
 
           {/* Ghost row — ajouter rapidement en bas de liste */}
           {displayItems.length > 0 && !search && !filterPerson && (
