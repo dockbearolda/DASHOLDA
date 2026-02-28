@@ -199,7 +199,7 @@ const CELL_INPUT =
   "border border-blue-300 ring-2 ring-blue-100/70 shadow-sm focus:outline-none";
 
 const EMPTY_CLS  = "text-slate-300 italic font-normal";
-const CELL_WRAP  = "h-full flex items-center px-1.5 overflow-hidden min-w-0";
+const CELL_WRAP  = "h-full flex items-center px-2.5 overflow-hidden min-w-0";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -690,9 +690,9 @@ function ClientNameCell({
       <div
         onClick={onStartEdit}
         className={cn(
-          "w-full h-8 px-2.5 text-[12px] rounded-lg cursor-text font-medium",
+          "w-full h-8 px-2.5 text-[13px] rounded-lg cursor-text font-semibold tracking-[-0.01em]",
           "flex items-center gap-1.5 hover:bg-black/[0.03] transition-colors duration-100 select-none truncate",
-          value ? "text-slate-800" : EMPTY_CLS,
+          value ? "text-slate-900" : EMPTY_CLS,
         )}
       >
         {clientId && (
@@ -1159,7 +1159,7 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "relative flex items-center gap-1.5 px-4 py-2.5 text-[13px]",
+                  "relative flex items-center gap-1.5 px-4 py-3.5 text-[13px]",
                   "whitespace-nowrap transition-[color] duration-[80ms]",
                   active
                     ? "text-blue-600 font-semibold"
@@ -1206,7 +1206,7 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                       : { col: sortKey, dir: "asc" }
                   ) : undefined}
                   className={cn(
-                    "px-1.5 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
+                    "px-2.5 py-3.5 text-[10px] font-semibold uppercase tracking-[0.08em]",
                     "flex items-center gap-1",
                     align === "center" ? "justify-center" : "",
                     sortKey ? "cursor-pointer select-none hover:text-slate-600 transition-colors duration-[80ms]" : "",
@@ -1293,7 +1293,7 @@ export function PlanningTable({ items, onItemsChange, onEditingChange }: Plannin
                         "grid w-full border-b border-black/[0.04] group relative",
                         "transition-[background-color,opacity,filter] duration-[80ms]",
                         "border-l-4", isDone ? "border-l-slate-200" : typeConfig.border,
-                        "min-h-[52px]",
+                        "min-h-[64px]",
                         rowBg,
                         isDone && "saturate-[0.4]",
                         isNew && "ring-1 ring-inset ring-blue-300/40",
